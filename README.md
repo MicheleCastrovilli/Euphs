@@ -7,7 +7,7 @@ Implemented in Haskell.
 Not working yet. 
 
 Current TODO:
-  * [ ] Refactoring
+  * [x] Refactoring
   * [ ] Implement whole euphoria.io protocol
   * [ ] Implement some bot functions
 

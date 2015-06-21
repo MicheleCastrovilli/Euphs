@@ -1,19 +1,26 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Euphoria.Types where
 
-data UserData = UserData { userID :: String,
-                           name :: String,
-                           serverID :: String,
-                           serverEra :: String,
-                           sessionID :: String }
+import qualified Data.Aeson                 as J
+import           Control.Monad
+
+type MessageID = String
+
+data UserData = UserData { userID     :: String,
+                           name       :: String,
+                           serverID   :: String,
+                           serverEra  :: String,
+                           sessionID  :: String }
       deriving (Eq,Show)
 
 data MessageData = MessageData { timeRecieved :: Integer,
-                                 msgID :: String,
-                                 parentMsg :: String,
-                                 sender :: UserData,
-                                 contentMsg :: String,
-                                 edited :: Bool,
-                                 deleted :: Bool}
+                                 msgID        :: MessageID,
+                                 parentMsg    :: String,
+                                 sender       :: UserData,
+                                 contentMsg   :: String,
+                                 edited       :: Bool,
+                                 deleted      :: Bool }
       deriving (Show)
 
 instance J.FromJSON MessageData where

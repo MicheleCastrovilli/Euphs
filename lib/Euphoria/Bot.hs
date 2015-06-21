@@ -1,27 +1,54 @@
-module Euphoria.Bot where
+{-# LANGUAGE OverloadedStrings #-}
 
-import qualified  Network.WebSockets          as WS
-import qualified  Network.WebSockets.Stream   as WSS
-import qualified  Network.Socket              as S
-import qualified  OpenSSL                     as SSL
-import qualified  OpenSSL.Session             as SSL
-import qualified  System.IO.Streams.SSL       as Streams
-import qualified  System.IO.Streams.Internal  as StreamsIO
-import qualified  Data.ByteString.Lazy        as B
+module Euphoria.Bot (
+  euphoriaBot,
+  sendPacket,
+  BotName,
+  RoomName,
+  BotAgent,
+  BotFunction,
+  BotState,
+  PacketId,
+) where
 
+import qualified Network.WebSockets          as WS
+import qualified Network.WebSockets.Stream   as WSS
+import qualified Network.Socket              as S
+import qualified OpenSSL                     as SSL
+import qualified OpenSSL.Session             as SSL
+import qualified System.IO.Streams.SSL       as Streams
+import qualified System.IO.Streams.Internal  as StreamsIO
+import qualified Data.ByteString.Lazy        as B
+import qualified Data.Text                   as T
+import qualified Data.Text.IO                as T
+import qualified Data.Aeson                  as J
+import           Control.Monad.Trans         (liftIO)
+import           Control.Monad
+import           Data.Time.Clock.POSIX
+import           Control.Concurrent
+import           Euphoria.Events
+import           Euphoria.Commands
+import           Euphoria.Types
+
+myHost :: String
 myHost = "euphoria.io"
+myPort :: Int
 myPort = 443
+myPathBef :: String
 myPathBef = "/room/"
+myPathAft :: String
 myPathAft = "/ws"
 
-data BotState = BotState
+data BotState = BotState WS.Connection PacketId BotAgent 
 
+type PacketId = MVar Int
 type BotName = String
 type RoomName = String
-type BotFunction = BotState -> IO ()
+type BotAgent = MVar UserData
+type BotFunction = BotState -> EuphEvent -> IO ()
 
-euphBot :: BotName -> RoomName -> BotFunction -> IO ()
-euphBot room botName function = SSL.withOpenSSL $ do 
+euphoriaBot :: BotName -> RoomName -> BotFunction -> IO ()
+euphoriaBot botName room botFunction = SSL.withOpenSSL $ do 
     ctx <- SSL.context
     is <- S.getAddrInfo Nothing (Just myHost) (Just $ show myPort)
     let addr = S.addrAddress $ head is
@@ -32,40 +59,46 @@ euphBot room botName function = SSL.withOpenSSL $ do
     SSL.connect ssl
     (i,o) <- Streams.sslToStreams ssl
     myStream <- WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
-    WS.runClientWithStream myStream myHost (myPathBef ++ room ++ myPathAft) WS.defaultConnectionOptions [] app
+    WS.runClientWithStream myStream myHost (myPathBef ++ room ++ myPathAft)
+               WS.defaultConnectionOptions [] $ botLoop botName botFunction
 
 botLoop :: BotName -> BotFunction -> WS.ClientApp ()
-bot botName botFunct conn = do
-        count <- newEmptyMVar
-        putMVar count 1
+botLoop botName botFunct conn = do
+        count <- newMVar 1
         myAgent <- newEmptyMVar
         putStrLn "Connected!"
+        let botState = BotState conn count myAgent
         forkIO $ forever $ do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
           liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
-            Just (PingEvent _ _) ->  do
-                              seq <- getNext count
-                              reply <- makePingReply seq
-                              WS.sendTextData conn reply
-            Just (NickEvent id user) -> putMVar myAgent user
-            Just x  -> (forkIO $ myFunct conn count myAgent x) >> return ()
-            Nothing -> return ()
+            Just (PingEvent _ _)      ->  do
+                                          time <- getPOSIXTime 
+                                          sendPacket botState (PingReply $ round time)
+            Just (NickEvent _ user)  ->  putMVar myAgent user
+            Just x                    ->  void $ forkIO $ botFunct botState x
+            Nothing                   ->  return ()
         
-        seq <- getNext count
-        WS.sendTextData conn (nickRequest nick seq)
+        sendPacket botState $ Nick botName
 
         let loop = do 
                    line <- getLine
-                   packetId <- getNext count
-                   unless (null line) $ WS.sendTextData conn (J.encode (Send packetId line "")) >> loop
+                   unless (null line) $ sendPacket botState (Send line "") >> loop
 
         loop
         WS.sendClose conn (T.pack "Bye!" )
 
-getNext count = do 
+getNextPacket :: MVar Int -> IO Int
+getNextPacket count = do 
             var <- takeMVar count
             putMVar count (var+1)
             return var
+
+sendPacket :: BotState -> EuphCommand -> IO ()
+sendPacket (BotState conn packetCounter _) euphPacket =
+      do
+      seqNum <- getNextPacket packetCounter
+      WS.sendTextData conn $ J.encode (Command seqNum euphPacket)
+
 

@@ -3,51 +3,46 @@ module Main (
     main
 ) where
 
-import            Euphoria.Bot            as B
-import            Euphoria.Events         as E
-import            Euphoria.Commands       as C
-import            Data.Maybe              as M
-import qualified  Data.Aeson              as J
-import            Control.Concurrent
-import            Control.Monad           (forever, unless, mzero)
-import            Control.Monad.Trans     (liftIO)
-import qualified  Network.WebSockets      as WS
-import qualified  Data.Text               as T
-import qualified  Data.Text.Encoding      as T
-import qualified  Data.Text.IO            as T
-import qualified  Data.ByteString         as B
-import qualified  Data.ByteString.Lazy    as BL
+import           Euphoria.Bot
+import           Euphoria.Events
+import           Euphoria.Commands
+import           Euphoria.Types
+import           Data.Maybe                  as M
+import           System.Environment
+import           Control.Concurrent
+import           Control.Monad               (void, when)
 
-functions :: [ BotState -> IO () ]
+functions :: [ (String , BotFunction ) ]
+functions =  [ ( "Q" , myFunction ) ]
 
 main = do
-       euphBot (service "ViviBot" myFunction) "haskell"
        args <- getArgs
-       if(length args < 4) then
-        putStrLn ("Usage: ./" ++ args !! 1  ++ "<bot name> <room name> [<functions>]"
+       if length args < 2 then
+        putStrLn "Usage: ./EuPhBot <bot name> <room name> [<functions>]"
        else 
-        sequence_ map (euphoriaBot (args !! 2)  (args !! 3)) (drop 3 args)
+        do
+        print $ drop 2 args
+        euphoriaBot "ViviBot" "test" myFunction
+        --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
+          --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
 
 
-myFunction :: WS.Connection -> MVar Int -> MVar UserData -> EuphEvent -> IO()
-myFunction conn count myAgent (SendEvent (MessageData time msgID parentMsg sender content _ _)) 
-        = if content == "!testViviBot" then
-            do 
-            myFile <- readFile "songs"
-            queueSongs (lines myFile) count conn msgID
-           -- packetId <- getNext count
-           -- WS.sendTextData conn $ J.encode (Send packetId ("Hello @" ++  name sender) msgID)
-          else
-            return ()
-myFunction conn count myAgent (SendReply (MessageData time msgID parentMsg sender content _ _))
+myFunction :: BotFunction
+myFunction botState (SendEvent (MessageData time msgID parentMsg sender content _ _))
+        = when (content == "!testViviBot") $
+             -- $ queueSongs [1..10] botState msgID
+             sendPacket botState (Send ("Hello! @" ++ name sender) msgID)
+
+myFunction botState (SendReply (MessageData time msgID parentMsg sender content _ _))
         = return ()
-myFunction conn count myAgent _ = return ()
+myFunction _ _ = return ()
 
-queueSongs (x:xs)  count conn msgID = do 
-                                packetId <- getNext count
-                                WS.sendTextData conn $ J.encode (Send packetId x msgID)
-                                threadDelay 2000000
-                                queueSongs xs count conn msgID 
-queueSongs _ _ _ _ = return ()
+queueSongs :: (Show a) => [a] -> BotState -> MessageID -> IO ()
+queueSongs (x:xs) botState parent= 
+  do 
+  sendPacket botState (Send (show x) parent)
+  threadDelay 2000000
+  queueSongs xs botState parent
+queueSongs _ _ _ = return ()
 
 
