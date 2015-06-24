@@ -2,6 +2,7 @@ EuPhBot
 =========
 
 [![Build Status](https://travis-ci.org/MicheleCastrovilli/EuPhBot.svg)] (https://travis-ci.org/MicheleCastrovilli/EuPhBot)
+
 A simple bot framework for the euphoria.io platform.
 Implemented in Haskell.
 
