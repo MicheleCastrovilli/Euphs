@@ -43,4 +43,3 @@ instance J.FromJSON UserData where
                <*> (v J..:? "server_era" J..!= "")
                <*> (v J..: "session_id")
   parseJSON _ = mzero
-

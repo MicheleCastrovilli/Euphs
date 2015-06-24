@@ -11,6 +11,7 @@ import           Data.Maybe                  as M
 import           System.Environment
 import           Control.Concurrent
 import           Control.Monad               (void, when)
+import           Text.Show                   as S
 
 functions :: [ (String , BotFunction ) ]
 functions =  [ ( "Q" , myFunction ) ]
@@ -22,7 +23,7 @@ main = do
        else 
         do
         print $ drop 2 args
-        euphoriaBot "ViviBot" "test" myFunction
+        euphoriaBot "ViviBot" (args !! 1) myFunction
         --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
           --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
 
@@ -30,17 +31,19 @@ main = do
 myFunction :: BotFunction
 myFunction botState (SendEvent (MessageData time msgID parentMsg sender content _ _))
         = when (content == "!testViviBot") $
-             -- $ queueSongs [1..10] botState msgID
-             sendPacket botState (Send ("Hello! @" ++ name sender) msgID)
+             do
+             a <- readFile "MyIDs"
+             queueSongs (map ("!q youtube.com/watch?v=" ++) (lines a)) botState msgID
+             -- sendPacket botState (Send ("Hello! @" ++ name sender) msgID)
 
 myFunction botState (SendReply (MessageData time msgID parentMsg sender content _ _))
         = return ()
 myFunction _ _ = return ()
 
-queueSongs :: (Show a) => [a] -> BotState -> MessageID -> IO ()
+queueSongs :: [String] -> BotState -> MessageID -> IO ()
 queueSongs (x:xs) botState parent= 
   do 
-  sendPacket botState (Send (show x) parent)
+  sendPacket botState (Send (x) parent)
   threadDelay 2000000
   queueSongs xs botState parent
 queueSongs _ _ _ = return ()

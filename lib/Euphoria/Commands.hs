@@ -27,21 +27,36 @@ instance J.ToJSON SentCommand where
 
 
 inPair :: EuphCommand -> [(T.Text, J.Value)]
-inPair (PingReply time)      = [
-                                 ("type" , "ping-reply" ),
-                                 ("data", J.object  [ "time" J..= time ])
-                               ]
-inPair (Nick nickname)           = [ 
-                                 ("type" , "nick" ),
-                                 ("data" , J.object [ "name"  J..= nickname])
-                               ]
-inPair (Send content parent) = [ 
-                                 ("type" , "send" ),
-                                 ("data" , J.object [ 
-                                                      "content" J..= content,
-                                                      "parent"  J..= parent
-                                                    ]
-                                 )
-                               ]
-inPair _ = []
+inPair (PingReply time) =
+  [
+    ("type" , "ping-reply" ),
+    ("data", J.object  [ "time" J..= time ])
+  ]
+inPair (Nick nickname) =
+  [ 
+    ("type" , "nick" ),
+    ("data" , J.object [ "name"  J..= nickname])
+  ]
+inPair (Send content parent) =
+  [ 
+    ("type" , "send" ),
+    ("data" , J.object [ 
+        "content" J..= content,
+        "parent"  J..= parent
+      ]
+    )
+  ]
+inPair (Who) =
+  [
+    ("type", "who")
+  ]
+inPair (Log num beforeID) = 
+  [
+    ("type", "log"), 
+    ("data", J.object [
+        "n" J..= num,
+        "before" J..= beforeID
+      ] 
+    )
+  ]
 

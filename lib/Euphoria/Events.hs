@@ -4,22 +4,20 @@ module Euphoria.Events where
 import qualified Data.Aeson              as J
 import qualified Data.Text               as T
 import           Control.Monad
-import           Data.Time.Clock.POSIX
-import qualified Data.ByteString.Lazy    as BL
-import qualified Data.Maybe              as M
 import           Euphoria.Types
 
 data EuphEvent = 
         PingEvent { pingTime :: Integer,
                     nextTime :: Integer}
-      | WhoReply
+      | WhoReply {  idResp   :: String,
+                    users    :: [UserData]
+                 }
       | LogReply
       | SnapshotEvent
-      | SendEvent { msgData :: MessageData }
-      | SendReply { msgData :: MessageData }
-      | NickEvent { 
-                   idResp :: String,
-                   userData :: UserData
+      | SendEvent { msgData  :: MessageData }
+      | SendReply { msgData  :: MessageData }
+      | NickEvent { idResp   :: String,
+                    userData :: UserData
                   }
       | JoinEvent
       | PartEvent
@@ -54,6 +52,8 @@ instance J.FromJSON EuphEvent where
                                   <*> return ""
                                   <*> ( v J..: "data" >>= (J..: "session_id"))
                         )
-
+     "who-reply" -> 
+          WhoReply <$> v J..: "id"
+                   <*> v J..: "data"
      _ -> mzero
   parseJSON _ = mzero
