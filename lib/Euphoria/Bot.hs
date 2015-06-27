@@ -76,7 +76,8 @@ botLoop botName botFunct conn = do
             Just (PingEvent _ _)      ->  do
                                           time <- getPOSIXTime 
                                           sendPacket botState (PingReply $ round time)
-            Just (NickEvent _ user)  ->  putMVar myAgent user
+            Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
+            Just (NickReply _ user)  ->  putMVar myAgent user
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
         

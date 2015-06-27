@@ -9,18 +9,20 @@ import           Euphoria.Types
 data EuphEvent = 
         PingEvent { pingTime :: Integer,
                     nextTime :: Integer}
-      | WhoReply {  idResp   :: String,
+      | WhoReply  { idResp   :: String,
                     users    :: [UserData]
-                 }
-      | LogReply
+                  }
+      | LogReply {  messages :: [MessageData] }
       | SnapshotEvent
       | SendEvent { msgData  :: MessageData }
       | SendReply { msgData  :: MessageData }
-      | NickEvent { idResp   :: String,
-                    userData :: UserData
+      | NickEvent { userData :: UserData,
+                    fromNick :: String
                   }
-      | JoinEvent
-      | PartEvent
+      | NickReply { idResp   :: String,
+                    userData :: UserData }
+      | JoinEvent { userData :: UserData }
+      | PartEvent { userData :: UserData }
       deriving (Show)
 
 
@@ -37,7 +39,7 @@ instance J.FromJSON EuphEvent where
      "send-event" ->
           SendEvent <$> ( v J..: "data" )
      "nick-reply" ->
-          NickEvent <$>  v J..: "id"
+          NickReply <$>  v J..: "id"
                     <*> (UserData <$> ( v J..: "data" >>= (J..: "id"))
                                   <*> ( v J..: "data" >>= (J..: "to"))
                                   <*> return ""
@@ -45,15 +47,21 @@ instance J.FromJSON EuphEvent where
                                   <*> ( v J..: "data" >>= (J..: "session_id"))
                         )
      "nick-event" -> 
-          NickEvent <$> v J..: "id" 
-                    <*> (UserData <$> ( v J..: "data" >>= (J..: "id"))
+          NickEvent <$> (UserData <$> ( v J..: "data" >>= (J..: "id"))
                                   <*> ( v J..: "data" >>= (J..: "to"))
                                   <*> return ""
                                   <*> return ""
                                   <*> ( v J..: "data" >>= (J..: "session_id"))
-                        )
+                        ) 
+                    <*> ( v J..: "data" >>= (J..: "from"))
      "who-reply" -> 
-          WhoReply <$> v J..: "id"
-                   <*> v J..: "data"
+          WhoReply  <$> v J..: "id"
+                    <*> v J..: "data"
+     "join-event" ->
+          JoinEvent <$> v J..: "data"
+     "part-event" ->
+          PartEvent <$> v J..: "data"
+     "log-reply" ->
+          LogReply  <$> v J..: "data"
      _ -> mzero
   parseJSON _ = mzero
