@@ -29,8 +29,8 @@ main = do
         --euphoriaBot "ViviBot" (args !! 1) myFunction
         a <- newMVar True
         b <- newMVar 0
-        forkIO $ euphoriaBot "CounterBot" (args !! 1) $ countFunction $ CountState a b
-        euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
+        euphoriaBot (args !! 0) (args !! 1) $ countFunction $ CountState a b
+        -- euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
         --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
           --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
 
@@ -69,28 +69,34 @@ fortuneFunction _ _ = return ()
 
 countFunction :: CountState -> BotFunction
 countFunction (CountState up num) botState (SendEvent (MessageData time msgID parentMsg sender content _ _ ))
-   = if content == "!upCount" then
+   =  case words content of 
+      "!upCount" : [] ->
         do
         prevUp <- takeMVar up
         putMVar up True
         sendPacket botState (Send (if prevUp then "It was already up!" else "Set to up") msgID)
-     else if content == "!downCount" then
+      "!downCount" : [] ->
         do 
         prevUp <- takeMVar up
         putMVar up False
         sendPacket botState (Send (if prevUp then "Set to down" else "It was already down!") msgID)
-    else if content == "!count" then
+      "!count" : [] ->
         do
         prevNum <- takeMVar num
         prevUp  <- takeMVar up
+        threadDelay 1000000
         putMVar up prevUp
         let nextNum = if prevUp then prevNum + 1 else prevNum - 1
         putMVar num nextNum
         sendPacket botState (Send (show nextNum) msgID)
-    else if content == "!replicate" then
-        euphoriaBot "ReplicatedCounterBot" "test" $ countFunction $ CountState up num
-    else 
-        return ()
+      "!gotoRoom" : x ->
+        do
+        closeConnection botState
+        euphoriaBot "CounterBot"  (head x) $ countFunction $ CountState up num
+      "!replicateTo" : x ->
+        euphoriaBot "CounterBot"  (head x) $ countFunction $ CountState up num
+
+      _ -> return ()
     
 countFunction _ _ _ 
    = return ()

@@ -3,6 +3,7 @@
 module Euphoria.Bot (
   euphoriaBot,
   sendPacket,
+  closeConnection,
   BotName,
   RoomName,
   BotAgent,
@@ -102,4 +103,6 @@ sendPacket (BotState conn packetCounter _) euphPacket =
       seqNum <- getNextPacket packetCounter
       WS.sendTextData conn $ J.encode (Command seqNum euphPacket)
 
-
+closeConnection :: BotState -> IO ()
+closeConnection (BotState conn _ _) =
+  WS.sendClose conn $ T.pack ""
