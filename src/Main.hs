@@ -14,11 +14,14 @@ import           Control.Concurrent
 import           Control.Monad               (void, when)
 import           Text.Show                   as S
 import           System.Process
+import           YTBot
 
 functions :: [ (String , BotFunction ) ]
 functions =  [ ( "Q" , myFunction ),
                 ("P",  fortuneFunction)]
 data CountState = CountState (MVar Bool) (MVar Int)
+
+
 main = do
        args <- getArgs
        if length args < 2 then
@@ -27,12 +30,15 @@ main = do
         do
         print $ drop 2 args
         --euphoriaBot "ViviBot" (args !! 1) myFunction
-        a <- newMVar True
-        b <- newMVar 0
-        euphoriaBot (args !! 0) (args !! 1) $ countFunction $ CountState a b
-        -- euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
+        --a <- newMVar True
+        --b <- newMVar 0
+        --euphoriaBot (args !! 0) (args !! 1) $ countFunction $ CountState a b
+        --euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
+        --print (M.mapMaybe (`lookup` functions)  $ drop 2 args)
         --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
           --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
+        ytFun <- getYTFun
+        euphoriaBot (args !! 0) (args !! 1) ytFun
 
 
 myFunction :: BotFunction
@@ -41,7 +47,7 @@ myFunction botState (SendEvent (MessageData time msgID parentMsg sender content 
              do
              !a <- readFile "MyIDs"
              -- (map ("!q youtube.com/watch?v=" ++) (lines a))
-             queueSongs [1..5] botState msgID
+             queueSongs [1..10] botState msgID
              -- sendPacket botState (Send ("Hello! @" ++ name sender) msgID)
 
 myFunction botState (SendReply (MessageData time msgID parentMsg sender content _ _))
@@ -68,7 +74,7 @@ fortuneFunction botState (SendEvent (MessageData time msgID parentMsg sender con
 fortuneFunction _ _ = return ()
 
 countFunction :: CountState -> BotFunction
-countFunction (CountState up num) botState (SendEvent (MessageData time msgID parentMsg sender content _ _ ))
+countFunction cs@(CountState up num) botState (SendEvent (MessageData time msgID parentMsg sender content _ _ ))
    =  case words content of 
       "!upCount" : [] ->
         do
@@ -92,12 +98,13 @@ countFunction (CountState up num) botState (SendEvent (MessageData time msgID pa
       "!gotoRoom" : x ->
         do
         closeConnection botState
-        euphoriaBot "CounterBot"  (head x) $ countFunction $ CountState up num
+        euphoriaBot "CounterBot"  (head x) $ countFunction cs
       "!replicateTo" : x ->
-        euphoriaBot "CounterBot"  (head x) $ countFunction $ CountState up num
+        euphoriaBot "CounterBot"  (head x) $ countFunction cs
 
       _ -> return ()
     
 countFunction _ _ _ 
    = return ()
+
 
