@@ -16,6 +16,7 @@ import           Data.Maybe
 import           System.IO.Unsafe
 import           System.Timeout
 import           Data.Time.Clock.POSIX
+import           Control.Exception
 
 data YTState = YTState {
               queue    :: MVar [YTMetadata],
@@ -167,12 +168,16 @@ retrieveYtData id ytState = do
   ytJson <- simpleHttp $  apiUrl ++ id ++ apiToken ( apiKey ytState)
   return $ J.eitherDecode ytJson 
 
+ -- x is the ytd id
+queueSong :: String -> BotState -> String -> YTState -> Bool -> IO()
 queueSong x bs idRepl ytState first = 
   do
   threadDelay 1000000
-  ytData <- retrieveYtData x ytState
+  ytData <- catch (retrieveYtData x ytState) (\ (SomeException e) -> return $ Left $ show e)
   case ytData of
-    Left err -> sendPacket bs (Send "Can't parse the link, invalid ids maybe?" idRepl)
+    Left err -> do
+                putStrLn err
+                sendPacket bs (Send "Can't parse the link, invalid ids or impossible to contact google api" idRepl)
     Right yt -> do
                 ytQ <- takeMVar (queue ytState)
                 let updatedQ = if first then yt:ytQ else ytQ ++ [yt]
