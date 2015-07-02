@@ -46,7 +46,7 @@ library
 
 executable EuPhBot
     main-is: Main.hs
-    exposed-modules:   YTBot
+    other-modules:     YTBot
     build-depends:     base >=4.8.0.0 && <4.9,
                        text >=1.2 && <1.3,
                        aeson >=0.9 && <0.10,

@@ -193,7 +193,7 @@ ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
     putStrLn "Queue started!"
   else
     do
-    sendPacket botState (Send ("!play youtube.com/watch?v=" ++ ytID ( head x) ++ "\n" ++ ytDescription (head x)) "")
+    sendPacket botState (Send ("!play youtube.com/watch?v=" ++ ytID ( head x) ++ "\n" ++ ytDescription (head x) ++ "\nNext: " ++ fromMaybe "Nothing" (title <$> safeHead(tail x))) "")
     putStrLn $ "Playing Song! " ++ title ( head x)
     takeMVar lastPlay
     curTime <- getPOSIXTime
@@ -232,8 +232,7 @@ helpFun botName =
 
 ytDescription :: YTMetadata -> String
 ytDescription yt = "Title : " ++ title yt ++ 
-                   "\nDuration: " ++ getFormattedTime (duration yt) ++
-                   "\n"
+                   "\nDuration: " ++ getFormattedTime (duration yt)
 
 safeHead :: [a] -> Maybe a
 safeHead x = if null x then
