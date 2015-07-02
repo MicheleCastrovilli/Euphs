@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 module YTBot where
 
 import qualified Data.Aeson as J
@@ -33,7 +34,7 @@ data YTMetadata = YTMetadata {
   durationStr :: String,
   embeddable :: Bool,
   restricted :: String
-} deriving (Show)
+} deriving (Show, Read)
 
 apiUrl :: String 
 apiUrl = "https://content.googleapis.com/youtube/v3/videos?part=snippet%2C+status%2C+contentDetails&id="
@@ -44,7 +45,9 @@ apiToken apiKey = "&key=" ++ apiKey
 getYtFun :: String -> IO BotFunction
 getYtFun apiKey = 
   do
-  que <- newMVar []
+  !a <- readFile "tmpQueue"
+  let x = fromMaybe [] (maybeRead2 a :: Maybe [YTMetadata])
+  que <- newMVar x
   skip <- newEmptyMVar
   play <- newEmptyMVar
   lastPlay <- newMVar 0
@@ -52,17 +55,16 @@ getYtFun apiKey =
   return $ ytFunction $ YTState que skip play lastPlay lastSong apiKey
 
 ytFunction :: YTState -> BotFunction
-ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender content _ _ ))
+ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender !content _ _ ))
    =  case words content of 
       "!vq" : x ->
         do
-        putStrLn $ unwords x
+        -- putStrLn $ unwords x
         let ytLink = map getYtID $ filter isYtLink x
         mapM_ (\x -> queueSong x botState msgID ytState False) ytLink
-        void $ tryPutMVar (play ytState) True
       "!vqf" : x ->
         do
-        putStrLn $ unwords x
+        -- putStrLn $ unwords x
         let ytLink = map getYtID $ filter isYtLink x
         mapM_ (\x -> queueSong x botState msgID ytState True) ytLink 
         void $ tryPutMVar (play ytState) True
@@ -96,7 +98,7 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                 show x ++ " - " ++
                 title y ++ 
                 " - youtube.com/watch?v=" ++ ytID y 
-                ++ " - "++ z) [1..] ytList $ map getFormattedTime $ getWaitTimes ytList timeRemaining)
+                ++ " - "++ z) [1..] ytList $ map (\x -> if(x <= 0) then "now" else getFormattedTime x) $ getWaitTimes ytList timeRemaining)
              msgID)
       "!vskip" : x -> do
                      x <- takeMVar (queue ytState)
@@ -119,7 +121,15 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
       "!help" : x : xs -> when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
       _ -> return () 
 
-ytFunction ytState botState (SnapshotEvent {}) = ytLoop botState ytState 
+ytFunction ytState botState (SnapshotEvent {}) = 
+  do
+
+  forkIO (do
+          readMVar (closedBot botState)
+          ytq <- takeMVar (queue ytState)
+          writeFile "tmpQueue" $ show ytq
+          )
+  ytLoop botState ytState 
 ytFunction _ _ _ = return ()
 
 
@@ -159,7 +169,7 @@ retrieveYtData id ytState = do
 
 queueSong x bs idRepl ytState first = 
   do
-  threadDelay 500000
+  threadDelay 1000000
   ytData <- retrieveYtData x ytState
   case ytData of
     Left err -> sendPacket bs (Send "Can't parse the link, invalid ids maybe?" idRepl)
@@ -170,7 +180,8 @@ queueSong x bs idRepl ytState first =
                 let pos =  if first then 1 else length ytQ + 1
                 timeRemaining <- getTimeRemaining ytState
                 let timeQueued = last $ take pos $ getWaitTimes updatedQ timeRemaining
-                sendPacket bs (Send ("Queued! ["++ show pos  ++  "] Title: " ++ title yt ++ " - will be played " ++ if(timeQueued == 0) then "now" else (" in " ++ getFormattedTime timeQueued )) idRepl)
+                void $ tryPutMVar (play ytState) True
+                sendPacket bs (Send ("Queued! ["++ show pos  ++  "] Title: " ++ title yt ++ " - will be played " ++ if(timeQueued <= 0) then "now" else ("in " ++ getFormattedTime timeQueued )) idRepl)
 
 ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
   x <- takeMVar queue
@@ -183,7 +194,7 @@ ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
   else
     do
     sendPacket botState (Send ("!play youtube.com/watch?v=" ++ ytID ( head x) ++ "\n" ++ ytDescription (head x)) "")
-    putStrLn "Playing Song!"
+    putStrLn $ "Playing Song! " ++ title ( head x)
     takeMVar lastPlay
     curTime <- getPOSIXTime
     putMVar lastPlay $ round curTime
@@ -208,7 +219,7 @@ getFormattedTime x = let hours =  div x 3600
 helpFun :: String -> String
 helpFun botName = 
   "I am @" ++ botName ++ ", a bot created by @viviff.\n\n" ++
-  "Commands: \n !vq <ytLink>... <ytLink> -> Queues all the youtube links found in the message at the end of the queue.\n" ++
+  "Commands: \n!vq <ytLink>... <ytLink> -> Queues all the youtube links found in the message at the end of the queue.\n" ++
   "!vqf <ytLink> ... <ytLink> -> Same thing as !vq but queues at the start of the queue.\n" ++
   "!vlist -> Shows a list of the songs currently in the queue.\n" ++
   "!vskip -> Skips the currently playing song. \n" ++

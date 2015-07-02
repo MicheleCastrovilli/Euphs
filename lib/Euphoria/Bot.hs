@@ -4,13 +4,14 @@ module Euphoria.Bot (
   euphoriaBot,
   sendPacket,
   closeConnection,
+  closedBot,
   getBotAgent,
   botName,
   BotName,
   RoomName,
   BotAgent,
   BotFunction,
-  BotState,
+  BotState
 ) where
 
 import qualified Network.WebSockets          as WS
@@ -24,6 +25,7 @@ import qualified Data.ByteString.Lazy        as B
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
+import           Control.Exception           (finally)
 import           Control.Monad.Trans         (liftIO)
 import           Control.Monad
 import           Data.Time.Clock.POSIX
@@ -53,7 +55,8 @@ data BotState = BotState {
   packetCount   :: PacketID,
   botAgent      :: BotAgent,
   botRoom       :: String,
-  botName       :: String
+  botName       :: String,
+  closedBot     :: MVar Bool
 }
 
 euphoriaBot :: BotName -> RoomName -> BotFunction -> IO ()
@@ -68,21 +71,32 @@ euphoriaBot botName room botFunction = SSL.withOpenSSL $ do
     SSL.connect ssl
     (i,o) <- Streams.sslToStreams ssl
     myStream <- WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
-    WS.runClientWithStream myStream myHost (myPathBef ++ room ++ myPathAft)
-               WS.defaultConnectionOptions [] $ botLoop botName room botFunction
+    closed <- newEmptyMVar
+    finally 
+      (WS.runClientWithStream myStream myHost (myPathBef ++ room ++ myPathAft) WS.defaultConnectionOptions [] $ botLoop botName room closed botFunction)
+      (void $ tryPutMVar closed True) 
 
-botLoop :: BotName -> RoomName -> BotFunction -> WS.ClientApp ()
-botLoop botName botRoom botFunct conn = do
+botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
+botLoop botName botRoom closed botFunct conn = do
         count <- newMVar 1
         myAgent <- newEmptyMVar
-        putStrLn "Connected!"
-        let botState = BotState conn count myAgent botRoom botName
+        nextPing <- newEmptyMVar
+
+        let botState = BotState conn count myAgent botRoom botName closed
+
+        --forkIO $ forever $ do
+         -- a <- takeMVar nextPing
+          --t <- getPOSIXTime
+          --when ( (round t)  > a + 10 ) $ closeConnection botState
+          --threadDelay (1000000*(fromInteger $ round t - a))
+
         forkIO $ forever $ do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
-          liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+         -- liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
-            Just (PingEvent _ _)      ->  do
+            Just (PingEvent _ nextTime)   ->  do
+            --                              tryPutMVar nextPing nextTime
                                           time <- getPOSIXTime 
                                           sendPacket botState (PingReply $ round time)
             Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
@@ -91,13 +105,9 @@ botLoop botName botRoom botFunct conn = do
             Nothing                   ->  return ()
         
         sendPacket botState $ Nick botName
-
-        let loop = do 
-                   line <- getLine
-                   unless (null line) $ sendPacket botState (Send line "") >> loop
-
-        loop
-        WS.sendClose conn (T.pack "Bye!" )
+        void $ readMVar closed
+        void $ threadDelay 1000000
+        
 
 getNextPacket :: MVar Int -> IO Int
 getNextPacket count = do 
@@ -113,10 +123,13 @@ sendPacket botState euphPacket =
 
 closeConnection :: BotState -> IO ()
 closeConnection botState =
+  do
+  tryPutMVar (closedBot botState) True
   WS.sendClose (botConnection botState) $ T.pack ""
 
 getBotAgent :: BotState -> IO UserData
 getBotAgent botState =
   do
   a <- readMVar $ botAgent botState
+  putMVar (botAgent botState) a
   return a

@@ -24,8 +24,8 @@ data CountState = CountState (MVar Bool) (MVar Int)
 
 main = do
        args <- getArgs
-       if length args < 2 then
-        putStrLn "Usage: ./EuPhBot <room name> <ytApiKey>"
+       if length args < 1 then
+        putStrLn "Usage: ./EuPhBot <room name>"
        else 
         do
         --print $ drop 2 args
@@ -38,8 +38,9 @@ main = do
         --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
           --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
         --euphoriaBot (args !! 0) (args !! 1) ytFun
-        ytFun <- getYtFun (args !! 1)
-        euphoriaBot "♪| ArgonDJBot" (args !! 0) ytFun
+        ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" -- (args !! 1)
+        euphoriaBot "♪|ArgonDJBot" (args !! 0) ytFun
+        
 
 
 myFunction :: BotFunction

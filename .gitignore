@@ -17,3 +17,5 @@ cabal.sandbox.config
 *.prof
 *.aux
 *.hp
+openFile
+tmpQueue
