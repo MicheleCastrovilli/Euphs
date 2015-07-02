@@ -68,7 +68,8 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
         void $ tryPutMVar (play ytState) True
       "!r" : num : ytLink:_ -> do
         let numR = fromMaybe (-1) (maybeRead2 num :: Maybe Int)
-        ytLinkP <- retrieveYtData ytLink ytState
+        let ytLinkID = if isYtLink ytLink then getYtID ytLink else ""
+        ytLinkP <- retrieveYtData ytLinkID ytState
         case ytLinkP of
           Left err ->  sendPacket botState (Send "Youtube link not valid" msgID)
           Right yt -> do
@@ -95,7 +96,7 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                 show x ++ " - " ++
                 title y ++ 
                 " - youtube.com/watch?v=" ++ ytID y 
-                ++ " - "++ show  z) [1..] ytList $ map getFormattedTime $ getWaitTimes ytList timeRemaining)
+                ++ " - "++ z) [1..] ytList $ map getFormattedTime $ getWaitTimes ytList timeRemaining)
              msgID)
       "!vskip" : x -> do
                      x <- takeMVar (queue ytState)
@@ -106,8 +107,16 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                     putMVar (queue ytState) []
                     sendPacket botState (Send ("Links : "  ++ concat (map (\y -> " youtube.com/watch?v=" ++ (ytID y)) x)) msgID)
       "!vkill":x  -> closeConnection botState 
-      "!help" : x : xs -> do
-                          when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
+      "!vdramaticskip":_ -> do
+              ytLink <- retrieveYtData "a1Y73sPHKxw" ytState
+              case ytLink of
+                Left err -> return ()
+                Right yt -> do 
+                            que <- takeMVar (queue ytState)
+                            tryPutMVar (play ytState) True
+                            putMVar (queue ytState) (yt:que)
+              putMVar (skip ytState) True
+      "!help" : x : xs -> when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
       _ -> return () 
 
 ytFunction ytState botState (SnapshotEvent {}) = ytLoop botState ytState 
@@ -198,11 +207,12 @@ getFormattedTime x = let hours =  div x 3600
 
 helpFun :: String -> String
 helpFun botName = 
-  "I am @" ++ botName ++ " a bot created by @viviff.\n\n" ++
+  "I am @" ++ botName ++ ", a bot created by @viviff.\n\n" ++
   "Commands: \n !vq <ytLink>... <ytLink> -> Queues all the youtube links found in the message at the end of the queue.\n" ++
   "!vqf <ytLink> ... <ytLink> -> Same thing as !vq but queues at the start of the queue.\n" ++
   "!vlist -> Shows a list of the songs currently in the queue.\n" ++
   "!vskip -> Skips the currently playing song. \n" ++
+  "!vdramaticskip -> Skips like the old times :D\n" ++
   "!r <num> <ytLink> -> Replaces the song at position <num> with the new ytLink. \n" ++
   "!vdump -> Dumps the queue\n" ++
   "!vkill -> Kills the bot, forever\n" ++
