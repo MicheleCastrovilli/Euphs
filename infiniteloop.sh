@@ -4,6 +4,6 @@
 while true
 do
   #cabal run music
-  ./EuPhBot music
-  sleep 30
+  EuPhBot $1
+  sleep 10
 done

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Euphoria.Bot (
   euphoriaBot,
@@ -25,7 +26,7 @@ import qualified Data.ByteString.Lazy        as B
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
-import           Control.Exception           (finally)
+import           Control.Exception           --(finally, catch, SomeException
 import           Control.Monad.Trans         (liftIO)
 import           Control.Monad
 import           Data.Time.Clock.POSIX
@@ -80,33 +81,40 @@ botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
 botLoop botName botRoom closed botFunct conn = do
         count <- newMVar 1
         myAgent <- newEmptyMVar
-        nextPing <- newEmptyMVar
-
         let botState = BotState conn count myAgent botRoom botName closed
 
-        --forkIO $ forever $ do
-         -- a <- takeMVar nextPing
-          --t <- getPOSIXTime
-          --when ( (round t)  > a + 10 ) $ closeConnection botState
-          --threadDelay (1000000*(fromInteger $ round t - a))
-
-        forkIO $ forever $ do
+        forkIO $ catch ( forever (
+          do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
-         -- liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+--          liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
-            Just (PingEvent _ nextTime)   ->  do
-            --                              tryPutMVar nextPing nextTime
-                                          time <- getPOSIXTime 
-                                          sendPacket botState (PingReply $ round time)
+            Just (PingEvent _ nextTime) -> do
+                                           {-putStrLn "PING!"-}
+                                           time <- getPOSIXTime 
+                                           sendPacket botState (PingReply $ round time)
             Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
             Just (NickReply _ user)   ->  putMVar myAgent user
-            Just x                    ->  void $ forkIO $ botFunct botState x
+            Just x                    ->  void $ forkIO $ botFunct botState x 
             Nothing                   ->  return ()
+          )) (\ (SomeException _) -> closeConnection botState )
         
         sendPacket botState $ Nick botName
-        void $ readMVar closed
+        a <- readMVar closed
         void $ threadDelay 1000000
+        {-forkIO $ forever (-}
+            {-do-}
+            {-a <- timeout 1000000 $ readChan timeoutChan-}
+            {-t <- getPOSIXTime-}
+            {-case a of -}
+            {-Nothing -> closeConnection botState-}
+            {-Just timed -> do-}
+                          {-putStrLn $ "PONG! " ++ ( show ( fromInteger timed - round t))-}
+                          {-threadDelay (1000000*(fromInteger timed - round t))-}
+                          {-return ()-}
+                          {-)-}
+          
+
         
 
 getNextPacket :: MVar Int -> IO Int
