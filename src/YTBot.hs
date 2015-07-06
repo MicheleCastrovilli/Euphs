@@ -13,10 +13,12 @@ import           Data.List
 import           Network.HTTP.Conduit
 import           Data.Char
 import           Data.Maybe
+import           Data.Either
 import           System.IO.Unsafe
 import           System.Timeout
 import           Data.Time.Clock.POSIX
 import           Control.Exception
+import           System.Random
 
 data YTState = YTState {
               queue    :: MVar YTQueue,
@@ -65,14 +67,14 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
         do
         -- putStrLn $ unwords x
         let ytLink = map getYtID $ filter isYtLink x
-        mapM_ (\x -> queueSong x botState msgID ytState False (name sender)) ytLink
+        mapM_ (\x -> queueSong x botState msgID ytState False $ name sender) ytLink
       "!vqf" : x ->
         do
         -- putStrLn $ unwords x
         let ytLink = map getYtID $ filter isYtLink x
-        mapM_ (\x -> queueSong x botState msgID ytState True (name sender)) ytLink 
-        void $ tryPutMVar (play ytState) True
-      "!r" : num : ytLink:_ -> do
+        -- queueSongList ytData botState msgID ytState (name sender) 0
+        mapM_ (\x -> queueSong x botState msgID ytState True $ name sender ) $ reverse ytLink
+      "!vr" : num : ytLink:_ -> do
         let numR = fromMaybe (-1) (maybeRead2 num :: Maybe Int)
         let ytLinkID = if isYtLink ytLink then getYtID ytLink else ""
         ytLinkP <- catch (retrieveYtData ytLinkID ytState) (\ (SomeException e) -> return $ Left $ show e)
@@ -97,12 +99,12 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
           do
           timeRemaining <- getTimeRemaining ytState
           sendPacket botState 
-            (Send ("[ # ][wait time]\n" ++ (unlines $ 
+            (Send ("[ # ][ wait  time ]\n" ++ (unlines $ 
               zipWith3 (\x y z -> 
                 "[" ++ (if x < 10 then " " ++ show x ++ " " else show x)  ++ "]" ++
-                "["++ z ++ "]" ++
-                " \"" ++title (fst y) ++ "\" " ++
-                " - from [" ++ snd y ++ "]")
+                "[  "++ z ++ "  ]" ++
+                " \"" ++title (fst y) ++ 
+                "\" from [" ++ snd y ++ "]")
                 [1..] ytList $ map (\x -> if(x <= 0) then "now" else (getFormattedTime x))   $ getWaitTimes ytList timeRemaining))
              msgID)
       "!vskip" : x -> do
@@ -123,6 +125,7 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                             tryPutMVar (play ytState) True
                             putMVar (queue ytState) ((yt,botName botState):que)
               putMVar (skip ytState) True
+      "!vneonlightshow":_ -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
       "!help" : x : xs -> when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
       _ -> return () 
 
@@ -158,10 +161,10 @@ instance J.FromJSON YTMetadata where
                              <*> (return "") -- ( ytl J..: "contentDetails"  >>=  (J..:? "regionRestriction") J..!= mzero >>=  (J..:? "blocked")  J..!= "")
 
 isYtLink :: String -> Bool
-isYtLink x = isInfixOf "youtube.com/watch?v=" x || isInfixOf "youtu.be/watch?v=" x
+isYtLink x = isInfixOf "youtube.com/watch?" x || isInfixOf "youtu.be/watch?" x
 
 getYtID :: String -> String
-getYtID = takeWhile (/= '&') . drop 1 . dropWhile  ( '=' /= )
+getYtID = takeWhile (/= '&') . drop 2 . dropWhile  ( 'v' /= )
 
 parseISO8601 :: String -> Int
 parseISO8601 x = 
@@ -194,7 +197,38 @@ queueSong x bs idRepl ytState first requester =
                 timeRemaining <- getTimeRemaining ytState
                 let timeQueued = last $ take pos $ getWaitTimes updatedQ timeRemaining
                 void $ tryPutMVar (play ytState) True
-                sendPacket bs (Send ("Queued! ["++ show pos  ++  "] \"" ++ title yt ++ "\" will be played " ++ if(timeQueued <= 0) then "now" else ("in " ++ getFormattedTime timeQueued )) idRepl)
+                sendPacket bs (Send ("["++ show pos  ++  "] \""
+                                ++ title yt ++ "\" will be played " ++ 
+                                if timeQueued <= 0 then 
+                                 "now" 
+                                else 
+                                  "in " ++ getFormattedTime timeQueued 
+                                ) 
+                              idRepl)
+
+{-queueSongList :: [IO (Either String YTMetadata)] -> BotState -> String -> YTState -> String -> Int -> IO ()-}
+{-queueSongList ioList@(_:_) bs idRepl ytState requester pos = -}
+  {-do-}
+  {-mapM (\x -> putStrLn x >> -}
+               {-sendPacket bs (Send "Can't parse the link, invalid ids or impossible to contact google api" idRepl)-}
+             {-) (lefts list)-}
+  {-ytQueue <- takeMVar (queue ytState)-}
+  {-let songs = map (\y -> (y, requester )) (rights list)-}
+  {-putMVar (queue ytState) (songs ++ ytQueue)-}
+  {-timeRemaining <- getTimeRemaining ytState-}
+  {-let timeQueue = getWaitTimes (songs ++ ytQueue) timeRemaining-}
+  {-mapM_ ( \x -> sendPacket bs (Send x idRepl) )-}
+     {-(zipWith3 (\yt timeQueued pos -> "["++ show pos  ++  "] \"" ++ title yt ++ -}
+                {-"\" will be played " ++ -}
+                {-if(timeQueued <= 0) then "now" -}
+                {-else ("in " ++ getFormattedTime timeQueued ))-}
+          {-(rights list) timeQueue [1..])-}
+                          
+
+ 
+queueSongList _ bs idRepl ytState requester pos = 
+    sendPacket bs (Send "Couldn't parse any link" idRepl)
+
 
 ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
   x <- takeMVar queue
@@ -206,7 +240,8 @@ ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
     putStrLn "Queue started!"
   else
     do
-    sendPacket botState (Send ("!play youtube.com/watch?v=" ++ ytID (fst $  head  x) ++ " - " ++ ytDescription (head x) ++ "\nNext: " ++ fromMaybe "Nothing" ((\x -> title (fst x) ++ " from " ++ (snd x))  <$> safeHead(tail x))) "")
+    sendPacket botState (Send (ytDescription (head x) ++ "Next: " ++ fromMaybe "Nothing" 
+                        ((\x -> title (fst x) ++ " from [" ++ (snd x) ++  "]")  <$> safeHead (tail x ))) "")
     putStrLn $ "Playing Song! " ++ title ( fst $ head x)
     takeMVar lastPlay
     curTime <- getPOSIXTime
@@ -226,26 +261,31 @@ getFormattedTime :: Int -> String
 getFormattedTime x = let hours =  div x 3600
                          minutes = div (x-hours*3600) 60
                          seconds = (x - hours*3600 - minutes*60)
-                         in show hours ++ ":" ++ (if (minutes < 10) then "0"  else "") ++ show minutes ++ ":" ++ (if (seconds < 10) then "0"  else "") ++ show seconds
+                         in (if hours < 10 then "0" else "") ++ show hours ++ ":" ++ 
+                            (if (minutes < 10) then "0"  else "") ++ show minutes ++ ":" ++ 
+                            (if (seconds < 10) then "0"  else "") ++ show seconds
 
 
 helpFun :: String -> String
 helpFun botName = 
-  "I am @" ++ botName ++ ", a bot created by @viviff.\n\n" ++
+  "I am @" ++ botName ++ ", a bot created by @viviff.\n" ++
+  "This bot is a replacement for NeonDJBot since it has been missing lately.\n\n" ++
   "Commands: \n!vq <ytLink>... <ytLink> -> Queues all the youtube links found in the message at the end of the queue.\n" ++
   "!vqf <ytLink> ... <ytLink> -> Same thing as !vq but queues at the start of the queue.\n" ++
   "!vlist -> Shows a list of the songs currently in the queue.\n" ++
   "!vskip -> Skips the currently playing song. \n" ++
   "!vdramaticskip -> Skips like the old times :D\n" ++
-  "!r <num> <ytLink> -> Replaces the song at position <num> with the new ytLink. \n" ++
+  "!vr <num> <ytLink> -> Replaces the song at position <num> with the new ytLink. \n" ++
   "!vdump -> Dumps the queue\n" ++
   "!vkill -> Kills the bot, forever\n" ++
   "!ping  -> Pong!\n" ++
+  "!vneonlightshow -> Light Show!\n" ++ 
   "!help @"++ botName ++" -> This very help."
 
 ytDescription :: (YTMetadata,String) -> String
-ytDescription yt = "Duration: " ++ getFormattedTime (duration $ fst yt) ++
-                   "\nTitle : " ++ title (fst yt) ++ " - from " ++ snd yt 
+ytDescription yt = "[" ++ getFormattedTime (duration $ fst yt) ++  "] " ++
+                           title (fst yt) ++ " from [" ++ snd yt ++"]\n" ++
+                   "!play youtube.com/watch?v=" ++ ytID (fst yt) ++ "\n"
 
 safeHead :: [a] -> Maybe a
 safeHead x = if null x then
@@ -265,3 +305,15 @@ getTimeRemaining ytState =
     Nothing -> return 0
     Just x -> return $ (duration x) - (round curTime - lastPlayedTime)
 
+getRandomLightShow :: IO String
+getRandomLightShow = do
+                     randomNum <- getStdRandom (randomR (0, length lightShowlist -1))
+                     return (lightShowlist !! randomNum)
+
+lightShowlist :: [String]
+lightShowlist = ["http://i.imgur.com/eBZO67G.gif", "http://i.imgur.com/0bprD6k.gif",
+                 "http://i.imgur.com/van2j15.gif", "http://i.imgur.com/sYjX7Qv.gif",
+                 "http://i.imgur.com/sNm4j9n.gif", "http://i.imgur.com/uXSlR5b.gif",
+                 "http://i.imgur.com/hGSXbsa.gif", "http://i.imgur.com/UlpqRbK.gif",
+                 "http://i.imgur.com/Wmm7EZg.gif", "http://i.imgur.com/QdYSbbA.gif",
+                 "http://i.imgur.com/Zy5heqF.gif", "http://i.imgur.com/H4vsVkh.gif"]
