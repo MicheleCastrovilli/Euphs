@@ -18,17 +18,17 @@ main :: IO ()
 main = do
        args <- getArgs
        if length args < 2 then
-        putStrLn $ "Usage: ./EuPhBot <function> <function param>\n"                ++
-                   "Current functions include : \n"                                ++
-                   "E - <room argument> Starts ArgonDJBot in the room specified\n" ++
-                   "C - <room argument> Starts CounterBot in the room specified\n" ++
-                   "F - <room argument> Starts FortuneBot in the room specified\n"
+        putStrLn $ "Usage: ./EuPhBot <function> <function param>\n"                 ++
+                   "Current functions include : \n"                                 ++
+                   "E - <room argument> Starts HeliumDJBot in the room specified\n" ++
+                   "C - <room argument> Starts  CounterBot in the room specified\n" ++
+                   "F - <room argument> Starts  FortuneBot in the room specified\n"
        else
         do
         if( args !!  0 == "E" ) then 
             do
             ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc"
-            euphoriaBot "♪|ArgonDJBot" (args !! 1) ytFun
+            euphoriaBot "♪|HeliumDJBot" (args !! 1) ytFun
         else if (args !! 0 == "C") then
             do
             a <- newMVar True

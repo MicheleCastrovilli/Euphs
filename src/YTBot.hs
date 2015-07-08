@@ -130,10 +130,10 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
             let playLink = findPlay xs
             unless  ( null playLink ) (
                 do
-                sendPacket botState $ Send "Found a play command, i now wait for the song to end" msgID
+                {-sendPacket botState $ Send "Found a play command, i now wait for the song to end" msgID-}
                 ytLink <- catch (retrieveYtData (head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
                 case ytLink of 
-                  Left _ -> sendPacket botState $ Send "Couldn't parse currently playing song" "" 
+                  Left _ -> return ()
                   Right ytSong -> do
                                   takeMVar (lastSong ytState) 
                                   putMVar  (lastSong ytState) $ Just ytSong
@@ -148,11 +148,12 @@ ytFunction ytState botState se@(SnapshotEvent {}) =
   let playLink = take 1 $ filter (\(_,x) -> not $ null x ) $
                  map (\x -> (x, findPlay $ words $ contentMsg x)) $ 
                  sortBy (flip (compare `on` timeRecieved)) $ messages se
-    
+   
   ytLink <- if not $ null playLink then
               catch (retrieveYtData (head $ snd $ head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
             else
               return $ Left "No Links Found"
+
   case ytLink of
     Left err     -> return ()
     Right ytSong -> do
@@ -284,7 +285,7 @@ waitSong :: YTState -> IO ()
 waitSong ytState =
     do
     ct <- getTimeRemaining ytState
-    a <- timeout (1000000 * fromIntegral (ct)) $ takeMVar $ skip ytState
+    a <- if ct < 0 then return Nothing else timeout (1000000 * fromIntegral ct) $ takeMVar $ skip ytState
     case a of 
       Just False -> waitSong ytState
       _ -> return ()
