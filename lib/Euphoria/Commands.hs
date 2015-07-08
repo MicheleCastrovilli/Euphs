@@ -17,7 +17,7 @@ data EuphCommand =
   | Who 
   | Log           { nMsg         :: Int,
                     beforeMsg    :: String  }
-  | Send          { contentMsg   :: String,
+  | Send          { contentSend  :: String,
                     parentMsg    :: String  }
   | Nick          { nick         :: String  }
   deriving (Eq,Show)

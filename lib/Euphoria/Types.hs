@@ -23,11 +23,17 @@ data MessageData = MessageData { timeRecieved :: Integer,
                                  deleted      :: Bool }
       deriving (Show)
 
+{-instance Eq MessageData where-}
+  {-m1@(MessageData {})i == m2@(MessageData {}) = timeRecieved m1 == timeRecieved m2-}
+
+{-instance Ord MessageData where-}
+  {-m1@(MessageData {})i `compare` m2@(MessageData {}) = timeRecieved m1 `compare` timeRecieved m2-}
+
 instance J.FromJSON MessageData where
   parseJSON (J.Object v) = 
       MessageData <$> (v J..: "time")
                   <*> (v J..: "id")
-                  <*> (v J..: "parent")
+                  <*> (v J..:? "parent" J..!="")
                   <*> (v J..: "sender")
                   <*> (v J..: "content")
                   <*> (v J..:? "edited" J..!=False)

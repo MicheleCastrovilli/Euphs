@@ -87,15 +87,15 @@ botLoop botName botRoom closed botFunct conn = do
           do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
---          liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+          liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
             Just (PingEvent _ nextTime) -> do
                                            {-putStrLn "PING!"-}
                                            time <- getPOSIXTime 
                                            sendPacket botState (PingReply $ round time)
-            Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
             Just (NickReply _ user)   ->  putMVar myAgent user
             Just x                    ->  void $ forkIO $ botFunct botState x 
+            Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
             Nothing                   ->  return ()
           )) (\ (SomeException _) -> closeConnection botState )
         

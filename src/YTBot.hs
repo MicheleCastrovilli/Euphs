@@ -8,23 +8,22 @@ import           Euphoria.Events
 import           Euphoria.Types
 import           Euphoria.Commands
 import           Control.Concurrent
-import           Control.Monad      (forever,liftM,mzero, void, when )
+import           Control.Monad      (forever, mzero, void, when, unless )
 import           Data.List
 import           Network.HTTP.Conduit
 import           Data.Char
 import           Data.Maybe
-import           Data.Either
-import           System.IO.Unsafe
 import           System.Timeout
 import           Data.Time.Clock.POSIX
 import           Control.Exception
 import           System.Random
+import           Data.Function
 
 data YTState = YTState {
               queue    :: MVar YTQueue,
               skip     :: MVar Bool,
               play     :: MVar Bool,
-              lastPlay :: MVar Int,
+              lastPlay :: MVar Integer,
               lastSong :: MVar (Maybe YTMetadata),
               apiKey   :: String
               }
@@ -33,7 +32,7 @@ data YTMetadata = YTMetadata {
   ytID :: String,
   title :: String,
   thumbnailUrl :: String,
-  duration :: Int,
+  duration :: Integer,
   durationStr :: String,
   embeddable :: Bool,
   restricted :: String
@@ -46,19 +45,19 @@ apiUrl :: String
 apiUrl = "https://content.googleapis.com/youtube/v3/videos?part=snippet%2C+status%2C+contentDetails&id="
 
 apiToken :: String -> String
-apiToken apiKey = "&key=" ++ apiKey
+apiToken apiKeyStr = "&key=" ++ apiKeyStr
 
 getYtFun :: String -> IO BotFunction
-getYtFun apiKey = 
+getYtFun apiKeyStr = 
   do
   !a <- readFile "tmpQueue"
   let x = fromMaybe [] (maybeRead2 a :: Maybe YTQueue)
   que <- newMVar x
-  skip <- newEmptyMVar
-  play <- newEmptyMVar
-  lastPlay <- newMVar 0
-  lastSong <- newMVar Nothing
-  return $ ytFunction $ YTState que skip play lastPlay lastSong apiKey
+  skipV <- newEmptyMVar
+  playV <- newEmptyMVar
+  lastPlayV <- newMVar 0
+  lastSongV <- newMVar Nothing
+  return $ ytFunction $ YTState que skipV playV lastPlayV lastSongV apiKeyStr
 
 ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender !content _ _ ))
@@ -112,36 +111,64 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                      putMVar (queue ytState) x
                      when (not $ null x) $ putMVar (skip ytState) True 
       "!vdump":x  -> do
-                    x <- takeMVar (queue ytState)
+                    dumpQueue <- takeMVar (queue ytState)
                     putMVar (queue ytState) []
-                    sendPacket botState (Send ("Links : "  ++ concat (map (\y -> " youtube.com/watch?v=" ++ (ytID $ fst y)) x)) msgID)
+                    sendPacket botState (Send ("Links : "  ++ concat (map (\y -> " youtube.com/watch?v=" ++ (ytID $ fst y)) dumpQueue)) msgID)
       "!vkill":x  -> closeConnection botState 
       "!vdramaticskip":_ -> do
-              ytLink <- retrieveYtData "a1Y73sPHKxw" ytState
+              ytLink <- catch (retrieveYtData "a1Y73sPHKxw" ytState) (\ (SomeException e) -> return $ Left $ show e)
               case ytLink of
-                Left err -> return ()
+                Left  _  -> return ()
                 Right yt -> do 
                             que <- takeMVar (queue ytState)
                             tryPutMVar (play ytState) True
                             putMVar (queue ytState) ((yt,botName botState):que)
               putMVar (skip ytState) True
       "!vneonlightshow":_ -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
-      "!help" : x : xs -> when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
+      "!help" : x : _ -> when ("@" ++ (filter isAlphaNum x) == "@" ++ (filter isAlphaNum $ botName botState)) (sendPacket botState (Send (helpFun $ botName botState ) msgID))
+      xs -> do
+            let playLink = findPlay xs
+            unless  ( null playLink ) (
+                do
+                sendPacket botState $ Send "Found a play command, i now wait for the song to end" msgID
+                ytLink <- catch (retrieveYtData (head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
+                case ytLink of 
+                  Left _ -> sendPacket botState $ Send "Couldn't parse currently playing song" "" 
+                  Right ytSong -> do
+                                  takeMVar (lastSong ytState) 
+                                  putMVar  (lastSong ytState) $ Just ytSong
+                                  takeMVar (lastPlay ytState)
+                                  putMVar  (lastPlay ytState) time
+                                  putMVar  (skip ytState)     False )
+
       _ -> return () 
 
-ytFunction ytState botState (SnapshotEvent {}) = 
+ytFunction ytState botState se@(SnapshotEvent {}) = 
   do
-
+  let playLink = take 1 $ filter (\(_,x) -> not $ null x ) $
+                 map (\x -> (x, findPlay $ words $ contentMsg x)) $ 
+                 sortBy (flip (compare `on` timeRecieved)) $ messages se
+    
+  ytLink <- if not $ null playLink then
+              catch (retrieveYtData (head $ snd $ head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
+            else
+              return $ Left "No Links Found"
+  case ytLink of
+    Left err     -> return ()
+    Right ytSong -> do
+                    takeMVar $ lastSong ytState
+                    putMVar (lastSong ytState) $ Just ytSong
+                    takeMVar $ lastPlay ytState
+                    putMVar (lastPlay ytState) $
+                      (fromMaybe 0 $ (timeRecieved . fst) <$> safeHead playLink) 
+                    waitSong ytState
   forkIO (do
           readMVar (closedBot botState)
-          a <- takeMVar (lastSong ytState)
           ytq <- takeMVar (queue ytState)
-
-          writeFile "tmpQueue" $ case a of 
-                                 Nothing -> show ytq
-                                 Just x -> show ((x, botName botState):ytq)
+          writeFile "tmpQueue" $ show ytq
           )
   ytLoop botState ytState 
+
 ytFunction _ _ _ = return ()
 
 
@@ -166,12 +193,15 @@ isYtLink x = isInfixOf "youtube.com/watch?" x || isInfixOf "youtu.be/watch?" x
 getYtID :: String -> String
 getYtID = takeWhile (/= '&') . drop 2 . dropWhile  ( 'v' /= )
 
-parseISO8601 :: String -> Int
+findPlay :: [String] -> [String] 
+findPlay xs = map getYtID $ take 1 $ dropWhile (not . isYtLink) $ dropWhile (/="!play") xs
+
+parseISO8601 :: String -> Integer
 parseISO8601 x = 
   let revS = reverse x
-      sec  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='S') revS ) :: Maybe Int)
-      min  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='M') revS ) :: Maybe Int)
-      hour = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='H') revS ) :: Maybe Int)
+      sec  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='S') revS ) :: Maybe Integer)
+      min  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='M') revS ) :: Maybe Integer)
+      hour = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='H') revS ) :: Maybe Integer)
       in (6 + sec + 60*min + hour*3600)
 
 retrieveYtData :: String -> YTState -> IO (Either String YTMetadata)
@@ -230,34 +260,42 @@ queueSongList _ bs idRepl ytState requester pos =
     sendPacket bs (Send "Couldn't parse any link" idRepl)
 
 
-ytLoop botState (YTState queue skip play lastPlay lastSong _) = forever $ do
-  x <- takeMVar queue
-  putMVar queue $ drop 1 x
+ytLoop botState ytState = forever $ do
+  x <- takeMVar $ queue ytState
+  putMVar (queue ytState) $ drop 1 x
   if null x then
     do
     putStrLn "Waiting for queue!"
-    takeMVar play
+    takeMVar $ play ytState
     putStrLn "Queue started!"
   else
     do
     sendPacket botState (Send (ytDescription (head x) ++ "Next: " ++ fromMaybe "Nothing" 
                         ((\x -> title (fst x) ++ " from [" ++ (snd x) ++  "]")  <$> safeHead (tail x ))) "")
     putStrLn $ "Playing Song! " ++ title ( fst $ head x)
-    takeMVar lastPlay
+    takeMVar $ lastPlay ytState
     curTime <- getPOSIXTime
-    putMVar lastPlay $ round curTime
-    takeMVar lastSong 
-    putMVar lastSong $ Just $ fst $ head x
-    void $ timeout (1000000 * (duration $ fst $ head x)) $ takeMVar skip
+    putMVar (lastPlay ytState) $ round curTime
+    takeMVar $ lastSong ytState
+    putMVar (lastSong ytState) $ Just $ fst $ head x
+    waitSong ytState
 
+waitSong :: YTState -> IO ()
+waitSong ytState =
+    do
+    ct <- getTimeRemaining ytState
+    a <- timeout (1000000 * fromIntegral (ct)) $ takeMVar $ skip ytState
+    case a of 
+      Just False -> waitSong ytState
+      _ -> return ()
 
 maybeRead2 :: Read a => String -> Maybe a
 maybeRead2 = fmap fst . listToMaybe . filter (null . dropWhile isSpace . snd) . reads
 
-getWaitTimes :: YTQueue -> Int -> [Int]
+getWaitTimes :: YTQueue -> Integer -> [Integer]
 getWaitTimes ytList currentWait = init $ scanl (\x y -> x + (duration $ fst y)) currentWait ytList
 
-getFormattedTime :: Int -> String
+getFormattedTime :: Integer -> String
 getFormattedTime x = let hours =  div x 3600
                          minutes = div (x-hours*3600) 60
                          seconds = (x - hours*3600 - minutes*60)
@@ -293,7 +331,7 @@ safeHead x = if null x then
              else
               Just $ head x
 
-getTimeRemaining :: YTState -> IO Int
+getTimeRemaining :: YTState -> IO Integer
 getTimeRemaining ytState =
   do
   lastPlayedTime <- takeMVar (lastPlay ytState)

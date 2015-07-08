@@ -8,95 +8,72 @@ import           Euphoria.Bot
 import           Euphoria.Events
 import           Euphoria.Commands
 import           Euphoria.Types
-import           Data.Maybe                  as M
 import           System.Environment
 import           Control.Concurrent
-import           Control.Monad               (void, when)
-import           Text.Show                   as S
+import           Control.Monad               (when)
 import           System.Process
 import           YTBot
 
-functions :: [ (String , BotFunction ) ]
-functions =  [ ( "Q" , myFunction ),
-                ("P",  fortuneFunction)]
-data CountState = CountState (MVar Bool) (MVar Int)
-
-
+main :: IO ()
 main = do
        args <- getArgs
-       if length args < 1 then
-        putStrLn "Usage: ./EuPhBot <room name>"
-       else 
+       if length args < 2 then
+        putStrLn $ "Usage: ./EuPhBot <function> <function param>\n"                ++
+                   "Current functions include : \n"                                ++
+                   "E - <room argument> Starts ArgonDJBot in the room specified\n" ++
+                   "C - <room argument> Starts CounterBot in the room specified\n" ++
+                   "F - <room argument> Starts FortuneBot in the room specified\n"
+       else
         do
-        --print $ drop 2 args
-        --euphoriaBot "ViviBot" (args !! 1) myFunction
-        --a <- newMVar True
-        --b <- newMVar 0
-        --euphoriaBot (args !! 0) (args !! 1) $ countFunction $ CountState a b
-        --euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
-        --print (M.mapMaybe (`lookup` functions)  $ drop 2 args)
-        --mapM_ (void . forkIO . euphoriaBot (head args) ( args !! 1))
-          --      (M.mapMaybe (`lookup` functions)  $ drop 2 args)
-        --euphoriaBot (args !! 0) (args !! 1) ytFun
-        ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" -- (args !! 1)
-        euphoriaBot "♪|ArgonDJBot" (args !! 0) ytFun
-        
-
-
-myFunction :: BotFunction
-myFunction botState (SendEvent (MessageData time msgID parentMsg sender content _ _))
-        = when (content == "!testViviBot") $
-             do
-             !a <- readFile "MyIDs"
-             -- (map ("!q youtube.com/watch?v=" ++) (lines a))
-             queueSongs [1..10] botState msgID
-             -- sendPacket botState (Send ("Hello! @" ++ name sender) msgID)
-
-myFunction botState (SendReply (MessageData time msgID parentMsg sender content _ _))
-        = return ()
-myFunction _ _ = return ()
-
-queueSongs :: (Show a) => [a] -> BotState -> MessageID -> IO ()
-queueSongs (x:xs) botState parent= 
-  do 
-  sendPacket botState (Send (show x) parent)
-  threadDelay 2000000
-  queueSongs xs botState parent
-queueSongs _ _ _ = return ()
+        if( args !!  0 == "E" ) then 
+            do
+            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc"
+            euphoriaBot "♪|ArgonDJBot" (args !! 1) ytFun
+        else if (args !! 0 == "C") then
+            do
+            a <- newMVar True
+            b <- newMVar 0
+            euphoriaBot "CounterBot" (args !! 1) $ countFunction $ CountState a b
+        else if( args !! 0 == "F") then
+            euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
+        else 
+            return ()
 
 fortuneFunction :: BotFunction
-fortuneFunction botState (SendEvent (MessageData time msgID parentMsg sender content _ _))
-  = when (content == "!fortune") $ 
+fortuneFunction botState (SendEvent message)
+  = when (contentMsg message == "!fortune") $ 
       do
       a <- readProcess "fortune" ["-s"] []
       putStrLn a
-      sendPacket botState (Send a msgID)
+      sendPacket botState $ Send a $ msgID message
       return ()
 
 fortuneFunction _ _ = return ()
 
+data CountState = CountState (MVar Bool) (MVar Int)
+
 countFunction :: CountState -> BotFunction
-countFunction cs@(CountState up num) botState (SendEvent (MessageData time msgID parentMsg sender content _ _ ))
-   =  case words content of 
+countFunction cs@(CountState up num) botState (SendEvent message)
+   =  case words (contentMsg message) of 
       "!upCount" : [] ->
         do
         prevUp <- takeMVar up
         putMVar up True
-        sendPacket botState (Send (if prevUp then "It was already up!" else "Set to up") msgID)
+        sendPacket botState (Send (if prevUp then "It was already up!" else "Set to up") $ msgID message)
       "!downCount" : [] ->
         do 
         prevUp <- takeMVar up
         putMVar up False
-        sendPacket botState (Send (if prevUp then "Set to down" else "It was already down!") msgID)
+        sendPacket botState (Send (if prevUp then "Set to down" else "It was already down!") $ msgID message)
       "!count" : [] ->
         do
         prevNum <- takeMVar num
         prevUp  <- takeMVar up
-        threadDelay 1000000
+        threadDelay 500000
         putMVar up prevUp
         let nextNum = if prevUp then prevNum + 1 else prevNum - 1
         putMVar num nextNum
-        sendPacket botState (Send (show nextNum) msgID)
+        sendPacket botState $ Send (show nextNum) $ msgID message
       "!gotoRoom" : x ->
         do
         closeConnection botState
@@ -105,8 +82,6 @@ countFunction cs@(CountState up num) botState (SendEvent (MessageData time msgID
         euphoriaBot "CounterBot"  (head x) $ countFunction cs
 
       _ -> return ()
-    
-countFunction _ _ _ 
-   = return ()
 
-
+countFunction _ _ _ =
+      return ()
