@@ -89,32 +89,14 @@ ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender 
                         do
                         putMVar (queue ytState) $ take (numR -1) ytQ ++ [(yt, name sender)] ++ drop numR ytQ
                         sendPacket botState $ Send ("Replaced ["++ num ++"] with : " ++ title yt) msgID 
-      "!vlist" : x -> do
-        ytList <- takeMVar $ queue ytState
-        putMVar (queue ytState) ytList
-        if null ytList then 
-          sendPacket botState (Send "Nothing Queued!" msgID)
-        else 
-          do
-          timeRemaining <- getTimeRemaining ytState
-          sendPacket botState 
-            (Send ("[ # ][ wait  time ]\n" ++ unlines ( 
-              zipWith3 (\x y z -> 
-                "[" ++ (if x < 10 then " " ++ show x ++ " " else show x)  ++ "]" ++
-                "[  "++ z ++ "  ]" ++
-                " \"" ++title (fst y) ++ 
-                "\" from [" ++ snd y ++ "]")
-                [1..] ytList $ map (\x -> if x <= 0 then "now" else getFormattedTime x) $ getWaitTimes ytList timeRemaining))
-             msgID)
+      "!vlist" : x -> listQueue ytState botState msgID
       "!vskip" : x -> do
-                     x <- takeMVar (queue ytState)
-                     putMVar (queue ytState) x
-                     --putStrLn "Vskipped a song"
-                     unless (null x) $ putMVar (skip ytState) True 
-      "!vdump":x  -> do
-                    dumpQueue <- takeMVar (queue ytState)
-                    putMVar (queue ytState) []
-                    sendPacket botState $ Send ("Links : "  ++ concatMap (\y -> " youtube.com/watch?v=" ++ ytID (fst y)) dumpQueue) msgID
+                      x <- takeMVar (queue ytState)
+                      putMVar (queue ytState) x
+                      --putStrLn "Vskipped a song"
+                      unless (null x) $ putMVar (skip ytState) True 
+      "!vdump"      :x  -> dumpQueue ytState botState msgID
+      "!vdumpqueue" :x  -> dumpQueue ytState botState msgID
       "!vkill":x  -> closeConnection botState 
       "!vdramaticskip":_ -> do
               ytLink <- catch (retrieveYtData "a1Y73sPHKxw" ytState) (\ (SomeException e) -> return $ Left $ show e)
@@ -263,6 +245,7 @@ queueSongList _ bs idRepl ytState requester pos =
 
 
 ytLoop botState ytState = forever $ do
+  waitSong ytState
   x <- takeMVar $ queue ytState
   putMVar (queue ytState) $ drop 1 x
   if null x then
@@ -273,7 +256,6 @@ ytLoop botState ytState = forever $ do
   else
     do
     --putStrLn "Waiting for current song to finish"
-    waitSong ytState
     --putStrLn "Current song should have finished"
     sendPacket botState 
       $ Send (ytDescription (head x) ++ "Next: " ++ fromMaybe "Nothing" 
@@ -362,3 +344,33 @@ lightShowlist = ["http://i.imgur.com/eBZO67G.gif", "http://i.imgur.com/0bprD6k.g
                  "http://i.imgur.com/hGSXbsa.gif", "http://i.imgur.com/UlpqRbK.gif",
                  "http://i.imgur.com/Wmm7EZg.gif", "http://i.imgur.com/QdYSbbA.gif",
                  "http://i.imgur.com/Zy5heqF.gif", "http://i.imgur.com/H4vsVkh.gif"]
+
+
+dumpQueue :: YTState -> BotState -> MessageID -> IO()
+dumpQueue ytState botState msgID = 
+  do
+  dumpQueue <- takeMVar (queue ytState)
+  putMVar (queue ytState) []
+  sendPacket botState $ Send ("Links : "  ++ concatMap (\y -> " youtube.com/watch?v=" ++ ytID (fst y)) dumpQueue) msgID
+
+listQueue :: YTState -> BotState -> MessageID -> IO()
+listQueue ytState botState msgID = 
+  do
+  ytList <- takeMVar $ queue ytState
+  putMVar (queue ytState) ytList
+  if null ytList then 
+   sendPacket botState (Send "Nothing Queued!" msgID)
+   else 
+    do
+    timeRemaining <- getTimeRemaining ytState
+    sendPacket botState 
+      (Send ("[ # ][ wait  time ]\n" ++
+        unlines ( 
+          zipWith3 (\x y z -> 
+           "[" ++ (if x < 10 then " " ++ show x ++ " " else show x)  ++ "]" ++
+           "[  "++ z ++ "  ]" ++
+           " \"" ++title (fst y) ++ 
+           "\" from [" ++ snd y ++ "]")
+         [1..] ytList $ map (\x -> if x <= 0 then "now" else getFormattedTime x) $ getWaitTimes ytList timeRemaining))
+       msgID)
+
