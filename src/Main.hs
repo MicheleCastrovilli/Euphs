@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
+
 module Main (
     main
 ) where
@@ -23,21 +23,16 @@ main = do
                    "E - <room argument> Starts HeliumDJBot in the room specified\n" ++
                    "C - <room argument> Starts  CounterBot in the room specified\n" ++
                    "F - <room argument> Starts  FortuneBot in the room specified\n"
-       else
-        do
-        if( args !!  0 == "E" ) then 
+       else if head args == "E"  then 
             do
             ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc"
             euphoriaBot "♪|HeliumDJBot" (args !! 1) ytFun
-        else if (args !! 0 == "C") then
+        else if head args == "C" then
             do
             a <- newMVar True
             b <- newMVar 0
             euphoriaBot "CounterBot" (args !! 1) $ countFunction $ CountState a b
-        else if( args !! 0 == "F") then
-            euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
-        else 
-            return ()
+        else when (head args == "F") $ euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
 
 fortuneFunction :: BotFunction
 fortuneFunction botState (SendEvent message)
@@ -55,17 +50,17 @@ data CountState = CountState (MVar Bool) (MVar Int)
 countFunction :: CountState -> BotFunction
 countFunction cs@(CountState up num) botState (SendEvent message)
    =  case words (contentMsg message) of 
-      "!upCount" : [] ->
+      "!upCount" : _ ->
         do
         prevUp <- takeMVar up
         putMVar up True
         sendPacket botState (Send (if prevUp then "It was already up!" else "Set to up") $ msgID message)
-      "!downCount" : [] ->
+      "!downCount" : _ ->
         do 
         prevUp <- takeMVar up
         putMVar up False
         sendPacket botState (Send (if prevUp then "Set to down" else "It was already down!") $ msgID message)
-      "!count" : [] ->
+      "!count" : _ ->
         do
         prevNum <- takeMVar num
         prevUp  <- takeMVar up

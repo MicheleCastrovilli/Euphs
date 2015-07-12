@@ -10,7 +10,7 @@ Not working yet.
 
 Current TODO:
   * [x] Refactoring
+  * [x] Implement some bot functions
   * [ ] Find a way to implement a script of some kind
   * [ ] Implement whole euphoria.io protocol
-  * [ ] Implement some bot functions
 

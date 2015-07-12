@@ -34,7 +34,7 @@ data EuphEvent =
 
 instance J.FromJSON EuphEvent where
   parseJSON (J.Object v) = do
-    msgType <- (v J..: "type")
+    msgType <- v J..: "type"
     case msgType :: T.Text of
      "ping-event" ->
           PingEvent     <$> ( v J..: "data" >>= (J..: "time"))
