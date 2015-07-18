@@ -23,7 +23,6 @@ import qualified System.IO.Streams.SSL       as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 import qualified Data.ByteString.Lazy        as B
 import qualified Data.Text                   as T
-import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
 import           Control.Exception           --(finally, catch, SomeException
 import           Control.Monad.Trans         (liftIO)
@@ -36,8 +35,10 @@ import           Euphoria.Types
 
 myHost :: String
 myHost = "euphoria.io"
+--myHost = "localhost"
 myPort :: Int
 myPort = 443
+--myPort = 8080
 myPathBef :: String
 myPathBef = "/room/"
 myPathAft :: String
@@ -88,13 +89,13 @@ botLoop botName botRoom closed botFunct conn = do
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
           -- liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
-            Just (PingEvent _ nextTime) -> do
+            Just (PingEvent _ _) -> do
                                            {-putStrLn "PING!"-}
                                            time <- getPOSIXTime 
                                            sendPacket botState (PingReply $ round time)
             Just (NickReply _ user)   ->  putMVar myAgent user
-            Just x                    ->  void $ forkIO $ botFunct botState x 
             Just (SendEvent (MessageData _ msgID _ _ "!ping" _ _)) -> sendPacket botState (Send "Pong!" msgID)
+            Just x                    ->  void $ forkIO $ botFunct botState x 
             Nothing                   ->  return ()
           )) (\ (SomeException _) -> closeConnection botState )
         
