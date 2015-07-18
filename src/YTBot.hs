@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ViewPatterns #-}
 module YTBot where
 
 import qualified Data.Aeson as J
@@ -62,22 +63,22 @@ getYtFun apiKeyStr =
 ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender !content _ _ ))
    =  case (let (x:xs) = words content in map toLower x : xs) of 
-      "!vq"  : x  -> queueSongs x botState ytState msgID sender False
-      "!vqueue"  : x  -> queueSongs x botState ytState msgID sender False
-      "!vqf" : x  -> queueSongs x botState ytState msgID sender True
-      "!vqueuefirst" : x  -> queueSongs x botState ytState msgID sender True
-      "!vr"  : num : ytLink:_ ->  replaceSong botState ytState msgID sender num ytLink
-      "!vreplace"  : num : ytLink:_ ->  replaceSong botState ytState msgID sender num ytLink
-      "!vlist" : x -> listQueue ytState botState msgID
-      "!vskip" : x -> skipSong ytState
-      "!vdump"      :x  -> dumpQueue ytState botState msgID
-      "!vdumpqueue" :x  -> dumpQueue ytState botState msgID
-      "!vkill":x  -> closeConnection botState 
-      "!vdramaticskip":_ -> dramaticSkip ytState botState
-      "!vneonlightshow":_ -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
-      "!help" : x : _ -> when (("@" ++ filter isAlphaNum x) == ("@" ++ (filter isAlphaNum $ botName botState))) 
-                                    $ sendPacket botState $ Send ( helpFun $ botName botState ) msgID
-      "!vhelp": _ -> sendPacket botState $ Send ( helpFun $ botName botState ) msgID 
+      (stripPrefix "!vqueuefirst" -> Just r) :x         -> queueSongs (r:x) botState ytState msgID sender True
+      (stripPrefix "!vqf" -> Just r)   :x               -> queueSongs (r:x) botState ytState msgID sender True
+      (stripPrefix "!vq" -> Just r )   :x               -> queueSongs (r:x) botState ytState msgID sender False
+      (stripPrefix "!vr" -> Just r)    :num:ytLink:_    -> replaceSong botState ytState msgID sender num ytLink
+--      (stripPrefix "!vi" -> Just r)    :num:x           -> insertSongs botState ytState msgID sender num ytLink
+      (stripPrefix "!vd" -> Just r)    :num:num2:_      -> deleteSongs botState ytState msgID sender num num2
+      (stripPrefix "!vlist" -> Just r) :_               -> listQueue ytState botState msgID
+      (stripPrefix "!vskip" -> Just r) :_               -> skipSong ytState
+      (stripPrefix "!vdump" -> Just r) :_               -> dumpQueue ytState botState msgID
+      (stripPrefix "!vkill" -> Just r) :_               -> closeConnection botState 
+      (stripPrefix "!vdramaticskip"  -> Just r) :_      -> dramaticSkip ytState botState
+      (stripPrefix "!vneonlightshow" -> Just r) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
+      (stripPrefix "!vnls" -> Just r)  :_               -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
+      (stripPrefix "!help" -> Just r)  :x:_             -> when (("@" ++ filter isAlphaNum x) == ("@" ++ filter isAlphaNum (botName botState))) 
+                                                            $ sendPacket botState $ Send ( helpFun $ botName botState ) msgID
+      (stripPrefix "!vhelp" -> Just r) :_               -> sendPacket botState $ Send ( helpFun $ botName botState ) msgID 
       
       xs -> do
             let playLink = findPlay xs
@@ -141,21 +142,23 @@ instance J.FromJSON YTMetadata where
                              <*> ( ytl J..: "status" >>= (J..: "embeddable"))
                              <*>   return ""  -- ( ytl J..: "contentDetails"  >>=  (J..:? "regionRestriction") J..!= mzero >>=  (J..:? "blocked")  J..!= "")
 
-isYtLink :: String -> Bool
-isYtLink x = isInfixOf "youtube.com/watch?" x || isInfixOf "youtu.be/" x
-
 getYtID :: String -> String
-getYtID = takeWhile (\x -> isAlphaNum x || x == '_') . drop 2 . dropWhile  ( 'v' /= )
+getYtID y 
+  | "youtube.com/watch?" `isInfixOf` y = takeWhile (\x -> isAlphaNum x || x == '_' || x == '-') $ drop 2 $  dropWhile ( 'v' /= ) y
+  | "youtu.be"           `isInfixOf` y = takeWhile (\x -> isAlphaNum x || x == '_' || x == '-') $ drop 4 $  dropWhile ( '.' /=  ) y
+  | otherwise                          = ""
+               
+
 
 queueSongs :: [String] -> BotState -> YTState -> MessageID -> UserData -> Bool -> IO ()
 queueSongs x botState ytState msgID sender first = 
     mapM_ (\x -> queueSong x botState msgID ytState first $ name sender) 
-       $ (if first then reverse else id ) $ map getYtID $ filter isYtLink x
+        $ (if first then reverse else id ) $ filter (/="") $  map getYtID x
 
 
 
 findPlay :: [String] -> [String] 
-findPlay xs = map getYtID $ take 1 $ dropWhile (not . isYtLink) $ dropWhile (/="!play") xs
+findPlay xs = take 1 $ dropWhile (== "") $ map getYtID $ dropWhile (/="!play") xs
 
 parseISO8601 :: String -> Integer
 parseISO8601 x = 
@@ -235,7 +238,7 @@ ytLoop botState ytState = forever $ do
     --putStrLn "Current song should have finished"
     sendPacket botState 
       $ Send (ytDescription (head x) ++ "Next: " ++ fromMaybe "Nothing" 
-                        ((\x -> title (fst x) ++ " from [" ++ snd x ++  "]")  <$> (safeHead $ tail x ))) ""
+                        ((\x -> title (fst x) ++ " from [" ++ snd x ++  "]")  <$> safeHead (tail x))) ""
     putStrLn $ "Playing Song! " ++ title ( fst $ head x)
     takeMVar $ lastPlay ytState
     curTime <- getPOSIXTime
@@ -257,7 +260,7 @@ maybeRead2 :: Read a => String -> Maybe a
 maybeRead2 = fmap fst . listToMaybe . filter (null . dropWhile isSpace . snd) . reads
 
 getWaitTimes :: YTQueue -> Integer -> [Integer]
-getWaitTimes ytList currentWait = init $ scanl (\x y -> x + (duration $ fst y)) currentWait ytList
+getWaitTimes ytList currentWait = init $ scanl (\x y -> x + duration (fst y)) currentWait ytList
 
 getFormattedTime :: Integer -> String
 getFormattedTime x = let hours =  div x 3600
@@ -275,17 +278,19 @@ helpFun :: String -> String
 helpFun botName = 
    "I am @" ++ botName ++ ", a bot created by viviff.\n" ++
    "This bot is a replacement for NeonDJBot since it has been missing lately.\n\n" ++
-   "Commands: \n!vq <ytLink>... <ytLink> -> Queues all the youtube links found in the message at the end of the queue.\n" ++
-   "!vqf <ytLink> ... <ytLink> -> Same thing as !vq but queues at the start of the queue.\n" ++
+   "Commands: \n!vq <ytLink>... <ytLink> -> Queues multiple youtube links at the end of the queue, separated by spaces.\n" ++
+   "!vqf <ytLink> ... <ytLink> (or !vqueuefirst) -> Same thing as !vq but queues at the start of the queue.\n" ++
    "!vlist -> Shows a list of the songs currently in the queue.\n" ++
    "!vskip -> Skips the currently playing song. \n" ++
    "!vdramaticskip -> Skips like the old times :D\n" ++
    "!vr <num> <ytLink> -> Replaces the song at position <num> with the new ytLink. \n" ++
-   "!vdump -> Dumps the queue\n" ++
+   "!vd <pos> <num> -> Removes <num> songs from the queue starting from the <pos> position.\n" ++
+   "!vdump -> Dumps the queue.\n" ++
    "!vkill -> Kills the bot, forever\n" ++
    "!ping  -> Pong!\n" ++
-   "!vneonlightshow -> Light Show!\n" ++
-   "!help @"++ botName ++" -> This very help."
+   "!vneonlightshow (or !vnls) -> Light Show!\n" ++
+   "!help @"++ botName ++" -> This very help.\n\n" ++
+   "Commands are also case insensitive, and they match only the prefix now."
 
 ytDescription :: (YTMetadata,String) -> String
 ytDescription yt = "[" ++ getFormattedTime (duration $ fst yt) ++  "] " ++
@@ -357,7 +362,7 @@ replaceSong :: BotState -> YTState -> MessageID -> UserData -> String -> String 
 replaceSong botState ytState msgID sender num ytLink = 
   do
   let numR = fromMaybe (-1) (maybeRead2 num :: Maybe Int)
-  let ytLinkID = if isYtLink ytLink then getYtID ytLink else ""
+  let ytLinkID = getYtID ytLink
   ytLinkP <- catch (retrieveYtData ytLinkID ytState) (\ (SomeException e) -> return $ Left $ show e)
   case ytLinkP of
     Left err -> putStrLn err >> sendPacket botState (Send "Can't parse the link, invalid ids or impossible to contact google api" msgID)
@@ -366,8 +371,8 @@ replaceSong botState ytState msgID sender num ytLink =
                 if numR < 0 || numR > length ytQ  then
                   sendPacket botState (Send "Number not in queue!" msgID) >> putMVar (queue ytState) ytQ
                 else
-                  (putMVar (queue ytState) $ take (numR -1) ytQ ++ [(yt, name sender)] ++ drop numR ytQ ) >> (
-                          sendPacket botState $ Send ("Replaced ["++ num ++"] with : " ++ title yt) msgID)
+                  putMVar (queue ytState)  (take (numR -1) ytQ ++ [(yt, name sender)] ++ drop numR ytQ ) >> 
+                          sendPacket botState ( Send ("Replaced ["++ num ++"] with : " ++ title yt) msgID)
 
 skipSong :: YTState -> IO ()
 skipSong ytState = do
@@ -386,4 +391,48 @@ dramaticSkip ytState botState =
                   tryPutMVar (play ytState) True
                   putMVar (queue ytState) ((yt,botName botState):que)
     putMVar (skip ytState) True
+
+
+{-insertSongs :: BotState -> YTState -> MessageID -> UserData -> Int -> [String] -> IO ()-}
+{-insertSongs botState ytState msgID sender pos ytLink =-}
+
+    {-do-}
+    {-let posR = fromMaybe (-1) (maybeRead2 pos :: Maybe Int)-}
+    {-ytResults <- mapM  ((\x -> catch (retrieveYtData x ytState) (\ (SomeException e) -> return $ Left $ show e)) >>= replyParse )-}
+                 {-(filter (/= "") $ map getYtID ytLink)-}
+   {-where replyParse x = -}
+            {-do-}
+            {-ytMetaEither <- x-}
+            {-case ytMetaEither of-}
+              {-Left _ -> sendPacket botState $ Send "Can't parse the link, invalid ids or impossible to contact google api" msgID-}
+              {-Right ytMeta -> -}
+                {-if embeddable yt then-}
+                  {-do-}
+                  {-ytQ <- takeMVar (queue ytState)-}
+                  {-let updatedQ = take pos ytQ ++ (ytMeta, name sender) ++ drop pos ytQ-}
+                  {-putMVar (queue ytState) updatedQ-}
+                  {-timeRemaining <- getTimeRemaining ytState-}
+                  {-let timeQueued = last $ take pos $ getWaitTimes updatedQ timeRemaining-}
+                  {-void $ tryPutMVar (play ytState) True-}
+                  {-sendPacket bs (Send ("["++ show pos  ++  "] \""-}
+                                          {-++ title yt ++ "\" will be played " ++ -}
+                                          {-if timeQueued <= 0 then "now"  else  "in " ++ getFormattedTime timeQueued  ) -}
+                                 {-idRepl)-}
+                {-else-}
+                  {-sendPacket bs $ Send ("Sorry, \"" ++ title yt ++ "\" is not embeddable.") idRepl-}
+
+
+
+
+deleteSongs :: BotState -> YTState -> MessageID -> UserData -> String -> String -> IO ()
+deleteSongs botState ytState msgID sender pos num = 
+   do
+   let (posI, numI) = (fromMaybe (-1) (maybeRead2 pos :: Maybe Int) , abs $ fromMaybe 1 ( maybeRead2 num :: Maybe Int))
+   ytQ <- takeMVar (queue ytState)
+   if posI < 0 || posI > length ytQ  then
+      sendPacket botState (Send "Index out of queue range!" msgID) >> putMVar (queue ytState) ytQ
+   else
+      putMVar (queue ytState)  (take (posI -1 ) ytQ ++ drop (posI + numI) ytQ ) >> 
+                          sendPacket botState ( Send ("Deleted from ["++ pos ++"] to ["++ show (posI + numI) ++ "]") msgID)
+
 
