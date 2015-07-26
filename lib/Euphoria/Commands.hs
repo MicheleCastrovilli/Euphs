@@ -1,20 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Euphoria.Commands where 
+module Euphoria.Commands where
 
 import qualified Data.Aeson                 as J
 import qualified Data.Text                  as T
 
-data SentCommand = 
+data SentCommand =
   Command {
     commandID   :: Int,
-    commandData :: EuphCommand 
+    commandData :: EuphCommand
   }
   deriving (Show)
 
-data EuphCommand = 
+data EuphCommand =
     PingReply     { timeReply    :: Integer }
-  | Who 
+  | Who
   | Log           { nMsg         :: Int,
                     beforeMsg    :: String  }
   | Send          { contentSend  :: String,
@@ -33,14 +33,14 @@ inPair (PingReply time) =
     ("data", J.object  [ "time" J..= time ])
   ]
 inPair (Nick nickname) =
-  [ 
+  [
     ("type" , "nick" ),
     ("data" , J.object [ "name"  J..= nickname])
   ]
 inPair (Send content parent) =
-  [ 
+  [
     ("type" , "send" ),
-    ("data" , J.object [ 
+    ("data" , J.object [
         "content" J..= content,
         "parent"  J..= parent
       ]
@@ -50,13 +50,13 @@ inPair (Who) =
   [
     ("type", "who")
   ]
-inPair (Log num beforeID) = 
+inPair (Log num beforeID) =
   [
-    ("type", "log"), 
+    ("type", "log"),
     ("data", J.object [
         "n" J..= num,
         "before" J..= beforeID
-      ] 
+      ]
     )
   ]
 

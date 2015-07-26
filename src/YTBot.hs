@@ -63,42 +63,39 @@ getYtFun apiKeyStr =
   return $ ytFunction $ YTState que skipV playV lastPlayV lastSongV apiKeyStr
 
 ytFunction :: YTState -> BotFunction
-ytFunction ytState botState (SendEvent (MessageData time msgID parentMsg sender !content _ _ ))
-   =  case (let (x:xs) = words content in map toLower x : xs) of
-      (stripPrefix "!vdramaticskip"  -> Just r) :_      -> dramaticSkip ytState botState
-      (stripPrefix "!vds"  -> Just r) :_                -> dramaticSkip ytState botState
-      (stripPrefix "!vdump" -> Just r) :_               -> dumpQueue ytState botState msgID
-      (stripPrefix "!vqueuefirst" -> Just r) :x         -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState msgID sender 1
-      (stripPrefix "!vrestrictions" -> Just r) :_       -> showRestrictions ytState botState msgID
-      (stripPrefix "!vqf" -> Just r)   :x               -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState msgID sender 1
-      (stripPrefix "!vq" -> Just r )   :x               -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState msgID sender (-1)
-      (stripPrefix "!vr" -> Just r)    :num:ytLink:_    -> replaceSong botState ytState msgID sender num ytLink
-      (stripPrefix "!vi" -> Just r)    :num:x           -> insertSongs (filter (/="") $  map getYtID x) botState ytState msgID sender num
-      (stripPrefix "!vd" -> Just r)    :num:x           -> deleteSongs botState ytState msgID sender num $ fromMaybe "1" $ safeHead x
-      (stripPrefix "!vlist" -> Just r) :x               -> listQueue ytState botState msgID $ getOpts x
-      (stripPrefix "!vskip" -> Just r) :_               -> skipSong ytState
-      (stripPrefix "!vkill" -> Just r) :_               -> closeConnection botState
-      (stripPrefix "!vneonlightshow" -> Just r) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
-      (stripPrefix "!vnls" -> Just r)  :_               -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x msgID)
-      (stripPrefix "!help" -> Just r)  :x:_             -> when (filter isAlphaNum x == filter isAlphaNum (botName botState))
-                                                            $ sendPacket botState $ Send ( helpFun $ botName botState ) msgID
-      (stripPrefix "!vhelp" -> Just r) :_               -> sendPacket botState $ Send ( helpFun $ botName botState ) msgID
-
-      xs -> do
-            let playLink = findPlay xs
-            unless  ( null playLink ) (
-                do
-                ytLink <- catch (retrieveYtData (head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
-                case ytLink of
-                  Left e -> putStrLn "Impossible to parse yt api"
-                  Right ytSong -> do
-                                  takeMVar (lastSong ytState)
-                                  putMVar  (lastSong ytState) $ Just ytSong
-                                  takeMVar (lastPlay ytState)
-                                  putMVar  (lastPlay ytState) time
-                                  putMVar  (skip ytState)     False )
-
-      _ -> return ()
+ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
+   = case (let (z:zs) = words content in map toLower z : zs) of
+     (stripPrefix "!vdramaticskip"  -> Just _) :_      -> dramaticSkip ytState botState
+     (stripPrefix "!vds"            -> Just _) :_      -> dramaticSkip ytState botState
+     (stripPrefix "!vdump"          -> Just _) :_      -> dumpQueue ytState botState mesgID
+     (stripPrefix "!vqueuefirst"    -> Just r) :x      -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState mesgID sndUser 1
+     (stripPrefix "!vrestrictions"  -> Just _) :_      -> showRestrictions ytState botState mesgID
+     (stripPrefix "!vqf"            -> Just r) :x      -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState mesgID sndUser 1
+     (stripPrefix "!vq"             -> Just r) :x      -> queueSongs (filter (/="") $  map getYtID $ r:x) botState ytState mesgID sndUser (-1)
+     (stripPrefix "!vr"             -> Just _) :n:y:_  -> replaceSong botState ytState mesgID sndUser n y
+     (stripPrefix "!vi"             -> Just _) :n:x    -> insertSongs (filter (/="") $  map getYtID x) botState ytState mesgID sndUser n
+     (stripPrefix "!vd"             -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
+     (stripPrefix "!vlist"          -> Just _) :x      -> listQueue ytState botState mesgID $ getOpts x
+     (stripPrefix "!vskip"          -> Just _) :_      -> skipSong ytState
+     (stripPrefix "!vkill"          -> Just _) :_      -> closeConnection botState
+     (stripPrefix "!vneonlightshow" -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
+     (stripPrefix "!vnls"           -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
+     (stripPrefix "!help"           -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState))
+                                                          $ sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
+     (stripPrefix "!vhelp"          -> Just _) :_      -> sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
+     xs -> do
+           let playLink = findPlay xs
+           unless  ( null playLink ) (
+               do
+               ytLink <- catch (retrieveYtData (head playLink) ytState) (\ (SomeException e) -> return $ Left $ show e)
+               case ytLink of
+                 Left _ -> putStrLn "Impossible to parse yt api"
+                 Right ytSong -> do
+                                 _ <- takeMVar (lastSong ytState)
+                                 putMVar  (lastSong ytState) $ Just ytSong
+                                 _ <- takeMVar (lastPlay ytState)
+                                 putMVar  (lastPlay ytState) time
+                                 putMVar  (skip ytState)     False )
 
 ytFunction ytState botState se@(SnapshotEvent {}) =
   do
@@ -112,16 +109,16 @@ ytFunction ytState botState se@(SnapshotEvent {}) =
               return $ Left "No Links Found"
 
   case ytLink of
-    Left err     -> return ()
+    Left _       -> return ()
     Right ytSong -> do
-                    takeMVar $ lastSong ytState
+                    _ <- takeMVar $ lastSong ytState
                     putMVar (lastSong ytState) $ Just ytSong
-                    takeMVar $ lastPlay ytState
+                    _ <- takeMVar $ lastPlay ytState
                     putMVar (lastPlay ytState)
                      (fromMaybe 0 $ (timeRecieved . fst) <$> safeHead playLink)
 
-  forkIO (do
-          readMVar (closedBot botState)
+  _ <- forkIO (do
+          _ <- readMVar (closedBot botState)
           ytq <- takeMVar (queue ytState)
           writeFile "tmpQueue" $ show ytq
           )
@@ -145,10 +142,11 @@ instance J.FromJSON YTMetadata where
                              <*> ( ytl J..: "status" >>= (J..: "embeddable"))
                              <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
                              <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return [])
+  parseJSON _ = mzero
 
 getYtID :: String -> String
-getYtID y = let x | "youtube.com/watch?" `isInfixOf` y = takeWhile (\x -> isAlphaNum x || x == '_' || x == '-') $ drop 2 $  dropWhile ( 'v' /= ) y
-                  | "youtu.be"           `isInfixOf` y = takeWhile (\x -> isAlphaNum x || x == '_' || x == '-') $ drop 4 $  dropWhile ( '.' /=  ) y
+getYtID y = let x | "youtube.com/watch?" `isInfixOf` y = takeWhile (\z -> isAlphaNum z || z == '_' || z == '-') $ drop 2 $  dropWhile ( 'v' /= ) y
+                  | "youtu.be"           `isInfixOf` y = takeWhile (\z -> isAlphaNum z || z == '_' || z == '-') $ drop 4 $  dropWhile ( '.' /=  ) y
                   | otherwise                          = ""
             in if length x >= 10 then x else ""
 
@@ -160,15 +158,16 @@ parseISO8601 :: String -> Integer
 parseISO8601 x =
   let revS = reverse x
       sec  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='S') revS ) :: Maybe Integer)
-      min  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='M') revS ) :: Maybe Integer)
+      min'  = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='M') revS ) :: Maybe Integer)
       hour = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/='H') revS ) :: Maybe Integer)
-      in (6 + sec + 60*min + hour*3600)
+      in (6 + sec + 60*min' + hour*3600)
 
 retrieveYtData :: String -> YTState -> IO (Either String YTMetadata)
-retrieveYtData id ytState = do
-  ytJson <- simpleHttp $  apiUrl ++ id ++ apiToken ( apiKey ytState)
+retrieveYtData ytId ytState = do
+  ytJson <- simpleHttp $  apiUrl ++ ytId ++ apiToken ( apiKey ytState)
   return $ J.eitherDecode ytJson
 
+ytLoop :: BotState -> YTState -> IO ()
 ytLoop botState ytState = forever $ do
   waitSong ytState
   x <- takeMVar $ queue ytState
@@ -176,7 +175,7 @@ ytLoop botState ytState = forever $ do
   if null x then
     do
     --putStrLn "Waiting for queue!"
-    takeMVar $ play ytState
+    _ <- takeMVar $ play ytState
     putStrLn "Queue started!"
   else
     do
@@ -184,17 +183,17 @@ ytLoop botState ytState = forever $ do
     --putStrLn "Current song should have finished"
     sendPacket botState
       $ Send (ytDescription (head x) ++ "Next: " ++ fromMaybe "Nothing"
-                        ((\x -> title (fst x) ++ " from [" ++ snd x ++  "]")  <$> safeHead (tail x)) ++
+                        ((\y -> title (fst y) ++ " from [" ++ snd y ++  "]")  <$> safeHead (tail x)) ++
                         if not $ null $ restricted $ fst $ head x  then
                           "\nRestricted: " ++ shorten 20 (intercalate " - " (restricted $ fst $ head x))
                         else if not $ null $ allowed $ fst $ head x then
                           "\nAllowed: " ++ shorten 20 (intercalate " - " (allowed $ fst $ head x))
                         else"") ""
     putStrLn $ "Playing Song! " ++ title ( fst $ head x)
-    takeMVar $ lastPlay ytState
+    _ <- takeMVar $ lastPlay ytState
     curTime <- getPOSIXTime
     putMVar (lastPlay ytState) $ round curTime
-    takeMVar $ lastSong ytState
+    _ <- takeMVar $ lastSong ytState
     putMVar (lastSong ytState) $ Just $ fst $ head x
 
 waitSong :: YTState -> IO ()
@@ -226,12 +225,12 @@ getFormattedTime x = let hours =  div x 3600
 
 
 helpFun :: String -> String
-helpFun botName =
-   "I am @" ++ botName ++ ", a bot created by viviff for use with rooms with video players.\n" ++
+helpFun botName' =
+   "I am @" ++ botName' ++ ", a bot created by viviff for use with rooms with video players.\n" ++
    "This bot replaces NeonDJBot, the original &music bot by Drex.\n" ++
    "Accepts also youtu.be links. Does not accept playlists or start times.\n\n" ++
    "COMMANDS: \n"++
-   "• !help @"++ botName ++" (!vhelp)\n  This very help. Commands are also case insensitive.\n\n" ++
+   "• !help @"++ botName' ++" (!vhelp)\n  This very help. Commands are also case insensitive.\n\n" ++
    "Queue Operators:\n" ++
    "• !vq <ytLink>... <ytLink> (!vqueue)\n  Queues multiple youtube links at the end of the queue, separated by spaces.\n" ++
    "• !vqf <ytLink> ... <ytLink> (!vqueuefirst)\n  Same thing as !vq but queues at the start of the queue.\n" ++
@@ -280,20 +279,20 @@ getRandomLightShow = do
 
 
 dumpQueue :: YTState -> BotState -> MessageID -> IO()
-dumpQueue ytState botState msgID =
+dumpQueue ytState botState mesgID =
   do
-  dumpQueue <- takeMVar (queue ytState)
+  dumped <- takeMVar (queue ytState)
   putMVar (queue ytState) []
-  sendPacket botState $ Send ("Links : "  ++ concatMap (\y -> " youtube.com/watch?v=" ++ ytID (fst y)) dumpQueue) msgID
+  sendPacket botState $ Send ("Links : "  ++ concatMap (\y -> " youtube.com/watch?v=" ++ ytID (fst y)) dumped) mesgID
 
 listQueue :: YTState -> BotState -> MessageID -> [String] -> IO()
-listQueue ytState botState msgID opts =
+listQueue ytState botState mesgID opts =
   do
   let links = "verbose" `elem` opts || "v" `elem` opts
   ytList <- takeMVar $ queue ytState
   putMVar (queue ytState) ytList
   if null ytList then
-   sendPacket botState (Send "Nothing Queued!" msgID)
+   sendPacket botState (Send "Nothing Queued!" mesgID)
    else
     do
     timeRemaining <- getTimeRemaining ytState
@@ -305,25 +304,25 @@ listQueue ytState botState msgID opts =
            "[  "++ z ++ "  ]" ++
            " \"" ++ title (fst y) ++
            "\" from [" ++ snd y ++ "]" ++ if links then "\n                     Link: youtube.com/watch?v=" ++ ytID (fst y) else "")
-         [1..] ytList $ map getFormattedTime $ getWaitTimes ytList timeRemaining))
-       msgID)
+         ([1..]::[Int]) ytList $ map getFormattedTime $ getWaitTimes ytList timeRemaining))
+       mesgID)
 
 
 replaceSong :: BotState -> YTState -> MessageID -> UserData -> String -> String -> IO ()
-replaceSong botState ytState msgID sender num ytLink =
+replaceSong botState ytState mesgID sndUser num ytLink =
   do
   let numR = fromMaybe (-1) (maybeRead2 num :: Maybe Int)
   let ytLinkID = getYtID ytLink
   ytLinkP <- catch (retrieveYtData ytLinkID ytState) (\ (SomeException e) -> return $ Left $ show e)
   case ytLinkP of
-    Left err -> putStrLn err >> sendPacket botState (Send "Can't parse the link, invalid ids or impossible to contact google api" msgID)
+    Left err -> putStrLn err >> sendPacket botState (Send "Can't parse the link, invalid ids or impossible to contact google api" mesgID)
     Right yt -> do
                 ytQ <- takeMVar (queue ytState)
                 if numR < 0 || numR > length ytQ  then
-                  sendPacket botState (Send "Number not in queue!" msgID) >> putMVar (queue ytState) ytQ
+                  sendPacket botState (Send "Number not in queue!" mesgID) >> putMVar (queue ytState) ytQ
                 else
-                  putMVar (queue ytState)  (take (numR -1) ytQ ++ [(yt, name sender)] ++ drop numR ytQ ) >>
-                          sendPacket botState ( Send ("Replaced ["++ num ++"] with : " ++ title yt) msgID)
+                  putMVar (queue ytState)  (take (numR -1) ytQ ++ [(yt, name sndUser)] ++ drop numR ytQ ) >>
+                          sendPacket botState ( Send ("Replaced ["++ num ++"] with : " ++ title yt) mesgID)
 
 skipSong :: YTState -> IO ()
 skipSong ytState = do
@@ -339,25 +338,25 @@ dramaticSkip ytState botState =
       Left  _  -> return ()
       Right yt -> do
                   que <- takeMVar (queue ytState)
-                  tryPutMVar (play ytState) True
+                  _ <- tryPutMVar (play ytState) True
                   putMVar (queue ytState) ((yt,botName botState):que)
     putMVar (skip ytState) True
 
 queueSongs :: [String] -> BotState -> YTState -> MessageID -> UserData -> Int -> IO ()
-queueSongs (x:xs) bs ytState msgID sender pos =
+queueSongs (x:xs) bs ytState mesgID sndUser pos =
   do
   threadDelay 1000000
   ytData <- catch (retrieveYtData x ytState) (\ (SomeException e) -> return $ Left $ show e)
   case ytData of
     Left err -> do
                 putStrLn err
-                sendPacket bs (Send "Can't parse the link, invalid ids or impossible to contact google api" msgID)
-                queueSongs xs bs ytState msgID sender pos
+                sendPacket bs (Send "Can't parse the link, invalid ids or impossible to contact google api" mesgID)
+                queueSongs xs bs ytState mesgID sndUser pos
     Right yt -> if embeddable yt then
                   do
                   ytQ <- takeMVar (queue ytState)
                   let posT =  if pos /= -1 then pos else length ytQ + 1
-                  let updatedQ = take (posT-1) ytQ ++ (yt,name sender): drop (posT-1) ytQ
+                  let updatedQ = take (posT-1) ytQ ++ (yt,name sndUser): drop (posT-1) ytQ
                   putMVar (queue ytState) updatedQ
                   timeRemaining <- getTimeRemaining ytState
                   let timeQueued = last $ take posT $ getWaitTimes updatedQ timeRemaining
@@ -365,41 +364,41 @@ queueSongs (x:xs) bs ytState msgID sender pos =
                   sendPacket bs (Send ("["++ show posT  ++  "] \""
                                   ++ title yt ++ "\" will be played " ++
                                   if timeQueued <= 0 then "now"  else  "in " ++ getFormattedTime timeQueued  )
-                                msgID)
-                  queueSongs xs bs ytState msgID sender (posT + 1)
+                                mesgID)
+                  queueSongs xs bs ytState mesgID sndUser (posT + 1)
                 else
-                  sendPacket bs (Send ("Sorry, \"" ++ title yt ++ "\" is not embeddable.") msgID ) >>
-                  queueSongs xs bs ytState msgID sender pos
+                  sendPacket bs (Send ("Sorry, \"" ++ title yt ++ "\" is not embeddable.") mesgID ) >>
+                  queueSongs xs bs ytState mesgID sndUser pos
 
-queueSongs [] bs ytState msgID sender pos = return ()
+queueSongs [] _ _ _ _ _ = return ()
 
 insertSongs :: [String] -> BotState -> YTState -> MessageID -> UserData -> String -> IO ()
-insertSongs xs bs ytState msgID sender pos =
+insertSongs xs bs ytState mesgID sndUser pos =
   case getYtID pos of
-    "" -> queueSongs xs bs ytState msgID sender $ fromMaybe (-1) (maybeRead2 pos :: Maybe Int)
-    x ->  queueSongs (x:xs) bs ytState msgID sender (-1)
+    "" -> queueSongs xs bs ytState mesgID sndUser $ fromMaybe (-1) (maybeRead2 pos :: Maybe Int)
+    x ->  queueSongs (x:xs) bs ytState mesgID sndUser (-1)
 
 
 deleteSongs :: BotState -> YTState -> MessageID -> UserData -> String -> String -> IO ()
-deleteSongs botState ytState msgID sender pos num =
+deleteSongs botState ytState mesgID _ pos num =
    do
    let (posI, numI) = (fromMaybe (-1) (maybeRead2 pos :: Maybe Int) , abs $ fromMaybe 1 ( maybeRead2 num :: Maybe Int))
    ytQ <- takeMVar (queue ytState)
    if posI < 0 || posI > length ytQ  then
-      sendPacket botState (Send "Index out of queue range!" msgID) >> putMVar (queue ytState) ytQ
+      sendPacket botState (Send "Index out of queue range!" mesgID) >> putMVar (queue ytState) ytQ
    else
       putMVar (queue ytState)  (take (posI -1 ) ytQ ++ drop (posI - 1 + numI) ytQ ) >>
                           if numI == 1 then
-                            sendPacket botState ( Send ("Deleted ["++ pos ++"]") msgID)
+                            sendPacket botState ( Send ("Deleted ["++ pos ++"]") mesgID)
                           else
-                            sendPacket botState ( Send ("Deleted from ["++ pos ++"] to ["++ show (posI - 1 +  numI) ++ "]") msgID)
+                            sendPacket botState ( Send ("Deleted from ["++ pos ++"] to ["++ show (posI - 1 +  numI) ++ "]") mesgID)
 
 getOpts :: [String] -> [String]
 getOpts x =
     map (dropWhile ('-' == )) $ filter ((==) '-' . head) x
 
 showRestrictions :: YTState -> BotState -> MessageID -> IO ()
-showRestrictions ytState botState msgID =
+showRestrictions ytState botState mesgID =
     do
     lastPlayedSong <- readMVar $ lastSong ytState
     let reply = case lastPlayedSong of
@@ -407,29 +406,29 @@ showRestrictions ytState botState msgID =
                 Just x | not $ null $ allowed x -> "Allowed: " ++ intercalate " - " (allowed x)
                        | not $ null $ restricted x -> "Restricted: " ++ intercalate " - " (restricted x)
                        | otherwise -> "No restrictions!"
-    sendPacket botState $ Send reply msgID
+    sendPacket botState $ Send reply mesgID
 
 
 shorten :: Int -> String -> String
 shorten num str = if length str > num then take (num - 3) str ++ "..." else str
 
 countries :: [String]
-countries = ["MF","AQ","WS","HK","IQ","MH","HN","HM","WF","HR","NL","HT","HU","GB","GA"
-             "GG","GF","GE","GD","GI","GH","GN","GM","GL","GS","GR","GQ","GP","GW","GU"
-             "GT","GY","RU","RW","SB","RS","RO","NF","OM","RE","NG","MM","BL","BM","BN"
-             "BO","BH","BI","BJ","BD","BE","BF","BG","BA","BB","BY","BZ","BT","ZM","BV"
-             "BW","BR","BS","JE","QA","JM","JO","JP","MO","VE","YT","KP","MP","YE","AG"
-             "PF","TV","TW","TT","IN","TR","AS","AR","IE","ID","TZ","AX","AZ","AE","AD"
-             "TD","AF","TC","TN","IT","TL","TM","AI","TK","IS","IR","LU","DO","DM","DJ"
-             "DK","SR","ZW","TO","DZ","SZ","SY","LY","LV","SV","LT","ST","LR","LS","SO"
-             "SN","SM","SL","SK","LK","SI","LI","SG","SE","SD","LB","LC","SA","LA","CO"
-             "AU","CM","CL","CK","CI","AT","CG","CF","SH","CC","AW","CA","TJ","CY","CX"
-             "CV","CU","CR","MD","KG","KE","VU","KN","KM","IL","KI","KH","KW","VA","VC"
-             "KR","VG","VI","KZ","VN","ZA","CN","FI","FJ","FK","FM","FO","TH","FR","KY"
-             "MN","UY","TF","NZ","UZ","TG","NP","US","CH","NU","MK","NI","UM","NO","UA"
-             "NA","IM","NC","SJ","NE","UG","PW","EH","MZ","CD","MW","AO","EC","EE","EG"
-             "AM","SC","AL","IO","ES","ER","ET","MA","MC","PA","ME","PG","MG","PE","PK"
-             "PH","PN","ML","PL","PM","MQ","PS","MS","MR","MU","MT","PT","MV","MY","MX"
+countries = ["MF","AQ","WS","HK","IQ","MH","HN","HM","WF","HR","NL","HT","HU","GB","GA",
+             "GG","GF","GE","GD","GI","GH","GN","GM","GL","GS","GR","GQ","GP","GW","GU",
+             "GT","GY","RU","RW","SB","RS","RO","NF","OM","RE","NG","MM","BL","BM","BN",
+             "BO","BH","BI","BJ","BD","BE","BF","BG","BA","BB","BY","BZ","BT","ZM","BV",
+             "BW","BR","BS","JE","QA","JM","JO","JP","MO","VE","YT","KP","MP","YE","AG",
+             "PF","TV","TW","TT","IN","TR","AS","AR","IE","ID","TZ","AX","AZ","AE","AD",
+             "TD","AF","TC","TN","IT","TL","TM","AI","TK","IS","IR","LU","DO","DM","DJ",
+             "DK","SR","ZW","TO","DZ","SZ","SY","LY","LV","SV","LT","ST","LR","LS","SO",
+             "SN","SM","SL","SK","LK","SI","LI","SG","SE","SD","LB","LC","SA","LA","CO",
+             "AU","CM","CL","CK","CI","AT","CG","CF","SH","CC","AW","CA","TJ","CY","CX",
+             "CV","CU","CR","MD","KG","KE","VU","KN","KM","IL","KI","KH","KW","VA","VC",
+             "KR","VG","VI","KZ","VN","ZA","CN","FI","FJ","FK","FM","FO","TH","FR","KY",
+             "MN","UY","TF","NZ","UZ","TG","NP","US","CH","NU","MK","NI","UM","NO","UA",
+             "NA","IM","NC","SJ","NE","UG","PW","EH","MZ","CD","MW","AO","EC","EE","EG",
+             "AM","SC","AL","IO","ES","ER","ET","MA","MC","PA","ME","PG","MG","PE","PK",
+             "PH","PN","ML","PL","PM","MQ","PS","MS","MR","MU","MT","PT","MV","MY","MX",
              "PR","PY","NR","CZ","DE"]
 
 lightShowlist :: [String]

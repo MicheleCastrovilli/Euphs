@@ -30,7 +30,7 @@ data MessageData = MessageData { timeRecieved :: Integer,
   {-m1@(MessageData {})i `compare` m2@(MessageData {}) = timeRecieved m1 `compare` timeRecieved m2-}
 
 instance J.FromJSON MessageData where
-  parseJSON (J.Object v) = 
+  parseJSON (J.Object v) =
       MessageData <$> (v J..: "time")
                   <*> (v J..: "id")
                   <*> (v J..:? "parent" J..!="")
@@ -42,7 +42,7 @@ instance J.FromJSON MessageData where
   parseJSON _ = mzero
 
 instance J.FromJSON UserData where
-  parseJSON (J.Object v) = 
+  parseJSON (J.Object v) =
       UserData <$> (v J..: "id")
                <*> (v J..: "name")
                <*> (v J..:? "server_id" J..!= "")
