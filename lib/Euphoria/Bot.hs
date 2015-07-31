@@ -8,6 +8,7 @@ module Euphoria.Bot (
   closedBot,
   getBotAgent,
   botName,
+  botRoom,
   BotName,
   RoomName,
   BotAgent,
@@ -60,12 +61,12 @@ data BotState = BotState {
   botAgent      :: BotAgent,
   botRoom       :: String,
   botName       :: String,
-  closedBot     :: MVar Bool
+  closedBot     :: MVar Bool,
+  startTime     :: Integer
 }
 
 euphoriaBot :: BotName -> RoomName -> BotFunction -> IO ()
 euphoriaBot botNick room botFunction = SSL.withOpenSSL $ do
-    putStrLn room
     ctx <- SSL.context
     is <- S.getAddrInfo Nothing (Just myHost) (Just $ show myPort)
     let addr = S.addrAddress $ head is
@@ -85,7 +86,8 @@ botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
 botLoop botNick room closed botFunct conn = do
         count <- newMVar 1
         myAgent <- newEmptyMVar
-        let botState = BotState conn count myAgent room botNick closed
+        started <- getPOSIXTime
+        let botState = BotState conn count myAgent room botNick closed (round started)
 
         _ <- forkIO $ catch ( forever (
           do
@@ -98,6 +100,8 @@ botLoop botNick room closed botFunct conn = do
                                            time <- getPOSIXTime
                                            sendPacket botState (PingReply $ round time)
             Just (NickReply _ user)   ->  putMVar myAgent user
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!vuptime" -> Just r) _ _)) ->
+                 getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
@@ -146,3 +150,17 @@ getBotAgent botState =
   a <- readMVar $ botAgent botState
   putMVar (botAgent botState) a
   return a
+
+
+getUptime :: BotState -> Integer -> String
+getUptime bs tt =
+  let myTime = tt - startTime bs
+      hours =  div myTime 3600
+      minutes = div (myTime-hours*3600) 60
+      seconds = (myTime - hours*3600 - minutes*60)
+  in if myTime > 0 then
+     show hours   ++ "h " ++
+     show minutes ++ "m " ++
+     show seconds ++ "s."
+    else
+     "UhOh, negative time?"
