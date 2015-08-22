@@ -10,7 +10,7 @@ import           Euphoria.Commands
 import           Euphoria.Types
 import           System.Environment
 import           Control.Concurrent
-import           Control.Monad        (when)
+import           Control.Monad        (when, void)
 import           System.Process
 import           System.IO
 import           System.Exit          ( ExitCode(..) )
@@ -31,7 +31,8 @@ main = do
        else if head args == "E"  then
             do
             ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (args !! 2) (args !! 1)
-            euphoriaBot "♪|HeliumDJBot" (args !! 1) ytFun
+            _ <- if length args >= 3 then void $ forkIO (euphoriaBot "♪|HeliumDJBot" (args !! 3) $ ytFunction (ytFun {noPlay = True})) else return ()
+            euphoriaBot "♪|HeliumDJBot" (args !! 1) $ ytFunction ytFun
         else if head args == "C" then
             do
             a <- newMVar True

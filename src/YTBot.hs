@@ -52,7 +52,7 @@ apiUrl = "https://content.googleapis.com/youtube/v3/videos?part=snippet%2C+statu
 apiToken :: String -> String
 apiToken apiKeyStr = "&key=" ++ apiKeyStr
 
-getYtFun :: String -> String -> String ->  IO BotFunction
+getYtFun :: String -> String -> String ->  IO YTState
 getYtFun apiKeyStr noplay room =
   do
   !a <- catch (readFile (room ++ "-queue")) (\(SomeException _) -> return "")
@@ -63,7 +63,7 @@ getYtFun apiKeyStr noplay room =
   lastPlayV <- newMVar 0
   lastSongV <- newMVar Nothing
   let noPlay' = fromMaybe False (maybeRead2 noplay :: Maybe Bool)
-  return $ ytFunction $ YTState que skipV playV lastPlayV lastSongV apiKeyStr noPlay'
+  return $ YTState que skipV playV lastPlayV lastSongV apiKeyStr noPlay'
 
 ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
