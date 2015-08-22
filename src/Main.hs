@@ -97,7 +97,7 @@ muevalFunction botState (SendEvent message)
   = let a = stripPrefix "!haskell" $ contentMsg message in
       case a of
         Nothing -> return ()
-        Just x -> readProcess' "mueval" ["-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+        Just x -> readProcess' "mueval" ["-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
 
 muevalFunction _ _ = return ()
 
