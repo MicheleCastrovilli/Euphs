@@ -311,9 +311,12 @@ dumpQueue ytState botState mesgID =
 listQueue :: YTState -> BotState -> MessageID -> [String] -> IO()
 listQueue ytState botState mesgID opts =
   do
-  let links = "verbose" `elem` opts || "v" `elem` opts
+  let verbose = "verbose" `elem` opts || "v" `elem` opts
   let restr = "restricted" `elem` opts || "r" `elem` opts
   let ids = "ytid" `elem` opts || "id" `elem` opts
+  let links = "links" `elem` opts
+  let comma = "comma" `elem` opts
+  let space = "space" `elem` opts
   ytList <- takeMVar $ queue ytState
   putMVar (queue ytState) ytList
   if null ytList then
@@ -322,17 +325,17 @@ listQueue ytState botState mesgID opts =
     do
     timeRemaining <- getTimeRemaining ytState
     sendPacket botState
-      (Send (if ids && (not links) then
-              "Ids: " ++ intercalate "," (map (ytID . fst) ytList)
+      (Send (if (ids || links)  && (not verbose) then
+             "Queue: " ++ intercalate (if comma then if links || space then ", " else "," else " ")
+                (map ((++) (if links then "youtube.com/watch?v=" else "" ) . ytID   . fst) ytList)
              else
         "[ # ][ wait  time ]\n" ++
         unlines (
           zipWith3 (\x y z ->
            "[" ++ (if x < 10 then " " ++ show x ++ " " else show x)  ++ "]" ++
-           "[  "++ z ++ "  ]" ++
-           " \"" ++ title (fst y) ++
-           "\" from [" ++ snd y ++ "]" ++
-            (if links then
+           "[  "++ z ++ "  ] \"" ++
+           title (fst y) ++ "\" from [" ++ snd y ++ "]" ++
+            (if verbose then
               "\n                     " ++ (if ids then "YTID: " else "Link: youtube.com/watch?v=") ++ ytID (fst y)
              else
               "") ++

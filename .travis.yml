@@ -13,7 +13,7 @@ ghc: "7.10"
 addons:
   apt:
     sources: 
-      - hvr/ghc
+      - ppa:hvr/ghc
     packages:
       - cabal-install-1.22
       - ghc-7.10.1
