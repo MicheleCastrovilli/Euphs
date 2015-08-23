@@ -101,9 +101,10 @@ botLoop botNick room closed botFunct conn = do
                                            time <- getPOSIXTime
                                            sendPacket botState (PingReply $ round time)
             Just (NickReply _ user)   ->  putMVar myAgent user
-            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!vuptime" -> Just r) _ _)) ->
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!uptime @" ++ botNick)  -> Just r) _ _)) ->
                  getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
           )) (\ (SomeException _) -> closeConnection botState )
