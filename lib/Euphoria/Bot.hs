@@ -94,7 +94,7 @@ botLoop botNick room closed botFunct conn = do
           do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
-          liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+          --liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
             Just (PingEvent _ _) -> do
                                            {-putStrLn "PING!"-}

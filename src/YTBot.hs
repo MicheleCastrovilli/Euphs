@@ -81,7 +81,7 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
      (stripPrefix "!del"           -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
      (stripPrefix "!list"          -> Just _) :x      -> listQueue ytState botState mesgID $ getOpts x
      (stripPrefix "!skip"          -> Just _) :_      -> skipSong ytState
-     (stripPrefix "!kill"          -> Just _) :_      -> sendPacket botState (Send "Bot is kill." mesgID) >> closeConnection botState
+     (stripPrefix "!kill"          -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState)) (sendPacket botState (Send "Bot is kill." mesgID) >> closeConnection botState)
      (stripPrefix "!neonlightshow" -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
      (stripPrefix "!nls"           -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
      (stripPrefix "!help"          -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState))
@@ -268,7 +268,7 @@ helpFun botName' =
 
 helpFunShort :: String -> String
 helpFunShort botName' =
- "◉ To play a song: !q <youtube.com link> (now accepts youtu.be !)\n\
+ "◉ :arrow_forward: To play a song: !q <youtube.com link> (now accepts youtu.be !)\n\
  \◉ Use !help @" ++ botName' ++ " for more options ('tab' will auto-complete)"
 
 ytDescription :: (YTMetadata,String) -> String

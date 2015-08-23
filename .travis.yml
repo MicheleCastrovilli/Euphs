@@ -9,6 +9,15 @@ ghc: "7.10"
  #- travis_retry sudo apt-get update
  #- travis_retry sudo apt-get install cabal-install-$CABALVER ghc-$GHCVER # see note about happy/alex
  #- export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
+ 
+addons:
+  apt:
+    sources: 
+      - hvr/ghc
+    packages:
+      - cabal-install-1.22
+      - ghc-7.10.1
+
 
 install:
  - cabal --version
