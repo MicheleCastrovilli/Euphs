@@ -84,7 +84,8 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
      (stripPrefix "!vneonlightshow" -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
      (stripPrefix "!vnls"           -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
      (stripPrefix "!help"           -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState))
-                                                          $ sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
+                                                           $ sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
+     (stripPrefix "!help"           -> Just _) :_      -> sendPacket botState $ Send (helpFunShort $ botName botState) mesgID
      (stripPrefix "!vhelp"          -> Just _) :_      -> sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
      (stripPrefix "!vswitch"        -> Just _) :x      -> switchSongs ytState botState mesgID x
      {-
@@ -240,7 +241,7 @@ helpFun botName' =
    "‣ Some link shorteners are accepted, like:\n  youtu.be/FTQbiNvZqaY\n"++
    "‣ Not accepted in links: playlists or start-times.\n\n"++
    "Help:\n"++
-   "• !help" ++ botName' ++"  (!vhelp): This very help.\n\n"++
+   "• !help @" ++ botName' ++"  (!vhelp): This very help.\n\n"++
    "Queue Operation:\n"++
    "• !vq <ytLink> <ytLink>  (!vqueue):\n  Queues single or multiple ytLinks at the queue's end.\n"++
    "• !vqf <ytLink> <ytLink>  (!vqueuefirst):\n  Same as !vq but queues at the start of the queue.\n"++
@@ -261,6 +262,10 @@ helpFun botName' =
    "• !vrestore: Restores the bot, from a pause.\n"++
    "• !vkill: Kills the bot, forever.\n"++
    "• !ping: Pong!\n"
+
+helpFunShort :: String -> String
+helpFunShort botName' =
+   "Use !vq <ytLink> to play something in the room. Use !help @" ++ botName' ++ " for more commands."
 
 ytDescription :: (YTMetadata,String) -> String
 ytDescription yt = "[" ++ getFormattedTime (duration $ fst yt) ++  "] " ++
@@ -313,7 +318,7 @@ listQueue ytState botState mesgID opts =
     do
     timeRemaining <- getTimeRemaining ytState
     sendPacket botState
-      (Send (if ids && (not links) then 
+      (Send (if ids && (not links) then
               "Ids: " ++ intercalate "," (map (ytID . fst) ytList)
              else
         "[ # ][ wait  time ]\n" ++
@@ -378,7 +383,7 @@ queueSongs text =
       queueSongsInt (filter (\x -> all (\y -> isAlphaNum y || '-' == y || '_' == y) x && length x > 9 ) $ reduceCommas text)
     else
       queueSongsInt (filterLinks text)
-  
+
 
 queueSongsInt :: [String] -> BotState -> YTState -> MessageID -> UserData -> Int -> IO ()
 queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
@@ -528,10 +533,28 @@ splitOn el lst =
     Just i -> let (b,c) = splitAt i lst in b : splitOn el (drop 1 c)
 
 
-switchSongs :: YTState -> BotState -> mesgID -> [String] -> IO ()
+switchSongs :: YTState -> BotState -> MessageID -> [String] -> IO ()
 switchSongs ytState botState mesgID x =
   do
-  let num1 = safeHead x >>= (\y -> maybeRead2 y ::  Maybe Int)
-  let num2 = safeHead (drop 1 x) >>= (\y -> maybeRead2 y ::  Maybe Int)
-  
-  return ()
+  let num1 = fromMaybe (-1) $ safeHead x >>= (\y -> maybeRead2 y ::  Maybe Int)
+  let num2 = fromMaybe (-1) $ safeHead (drop 1 x) >>= (\y -> maybeRead2 y ::  Maybe Int)
+  curQ <- takeMVar $ queue ytState
+  if ( and [num1 <= length curQ, num2 <= length curQ, num1 >= 1, num2 >= 1] ) then
+    putMVar (queue ytState) (
+    if num1 > num2 then
+      swap num2 num1 curQ
+    else
+      swap num1 num2 curQ
+    ) >>
+    (sendPacket botState $ Send "Elements switched!" mesgID)
+  else
+    putMVar (queue ytState) curQ >>
+    (sendPacket botState $ Send "Error on parsing the command or index out of ranges. Usage : !vswitch <pos1> <pos2>" mesgID)
+
+swap :: Int -> Int -> [a] -> [a]
+swap n1 n2 lst =
+  let v1 = lst !! n1
+      v2 = lst !! n2
+      l1 = drop n1 lst
+  in take (n1-1) lst ++ v2: (take (n2-n1-1) l1 ++ v1 : drop (n2-n1) l1)
+
