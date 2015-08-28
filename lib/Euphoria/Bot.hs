@@ -107,11 +107,12 @@ botLoop botNick room closed botFunct conn = do
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
-          )) (\ (SomeException _) -> closeConnection botState )
+          )) (\ (SomeException _) -> closeConnection botState True )
 
         sendPacket botState $ Nick botNick
         putStrLn $ "Connected to Euphoria! With nick: " ++ botNick ++ " and in the room: " ++ botRoom botState
-        _ <- readMVar closed
+
+        let loop x = if x then return () else loop x in readMVar closed >>= loop
         void $ threadDelay 1000000
         {-forkIO $ forever (-}
             {-do-}
@@ -140,10 +141,10 @@ sendPacket botState euphPacket =
       seqNum <- getNextPacket $ packetCount botState
       WS.sendTextData (botConnection botState) $ J.encode (Command seqNum euphPacket)
 
-closeConnection :: BotState -> IO ()
-closeConnection botState =
+closeConnection :: BotState -> Bool -> IO ()
+closeConnection botState main =
   do
-  _ <- tryPutMVar (closedBot botState) True
+  _ <- tryPutMVar (closedBot botState) main
   WS.sendClose (botConnection botState) $ T.pack ""
 
 getBotAgent :: BotState -> IO UserData
