@@ -23,6 +23,7 @@ import           Data.Function
 import qualified Data.Set as S
 import qualified Database.HDBC as H
 import qualified Database.HDBC.Sqlite3 as SQL
+import qualified Data.ByteString.Lazy.Char8 as B
 
 data YTState = YTState {
               queue    :: MVar YTQueue,
@@ -181,7 +182,9 @@ parseISO8601 x =
 
 retrieveYtData :: String -> YTState -> IO (Either String YTMetadata)
 retrieveYtData ytId ytState = do
+  putStrLn ytId
   ytJson <- simpleHttp $  apiUrl ++ ytId ++ apiToken ( apiKey ytState)
+  B.putStrLn ytJson
   return $ J.eitherDecode ytJson
 
 ytLoop :: BotState -> YTState -> IO ()
@@ -253,7 +256,7 @@ helpFun botName' =
    \• !q <ytLink> <ytLink>  [-id or -ytid] (!queue):\n  Queues single or multiple ytLinks at the queue's end.\n\
    \• !qf <ytLink> <ytLink>  [-id or -ytid] (!queuefirst):\n  Same as !q but queues at the start of the queue.\n\
    \• !ins <pos> <ytLink> <ytLink>  [-id or -ytid] (!insert):\n  Inserts the song(s) at position <pos>,\n  moving the existing songs down.\n\
-   \• !sub <pos> <ytLink>  (!substitute):\n  Replaces the song at position <pos>\n  with the new ytLink.\n\
+   \• !sub <pos> <ytLink>  (!substitute):\n  Substitutes the song at position <pos>\n  with the new ytLink.\n\
    \• !del <pos> <num>  (!delete):\n  Deletes <num> songs from the queue\n  starting from the <pos> position.\n\
    \• !list [-v or -verbose][-r or -restricted][-id or -ytid][-links][-comma][-space]:\n  Shows a list of the songs currently in the queue,\n\
    \  -verbose adds ytLinks while keeping the titles.\n\

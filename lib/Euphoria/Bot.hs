@@ -27,6 +27,7 @@ import qualified Data.ByteString.Lazy        as B
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
+import           Data.Char                  (isSpace)
 import           Data.List
 import           Control.Exception           --(finally, catch, SomeException
 import           Control.Monad.Trans         (liftIO)
@@ -103,8 +104,8 @@ botLoop botNick room closed botFunct conn = do
             Just (NickReply _ user)   ->  putMVar myAgent user
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!uptime @" ++ botNick)  -> Just r) _ _)) ->
                  getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
-            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just r) _ _)) -> when (null $ filter (not .isSpace) r) $ sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
           )) (\ (SomeException _) -> closeConnection botState True )

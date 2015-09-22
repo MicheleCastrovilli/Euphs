@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main (
     main
@@ -10,7 +11,8 @@ import           Euphoria.Commands
 import           Euphoria.Types
 import           System.Environment
 import           Control.Concurrent
-import           Control.Monad        (when, void)
+import           Control.Monad        (when, void, forever)
+import           Data.Char            (isAlphaNum)
 import           System.Process
 import           System.IO
 import           System.Exit          ( ExitCode(..) )
@@ -45,6 +47,8 @@ main = do
           euphoriaBot "MuevalBot" (args !! 1) muevalFunction
         else if head args == "T" then
           getTagFunction >>= (euphoriaBot "TestTagBot" (args !! 1) . tagFunction)
+        else if head args == "Talk" then
+          newChan >>= ( euphoriaBot "ViviBot" (args !! 1) . talkBasicFun)
         else
           putStrLn "Use help"
 
@@ -140,3 +144,21 @@ readProcess' cmd args input = do
 format :: Char -> String
 format ',' = " , "
 format c = [c]
+
+
+talkBasicFun :: Chan MessageID -> BotFunction
+talkBasicFun chan botState (SnapshotEvent _ _ _ _ _)
+  = forever (getLine >>= \x -> sendPacket botState (Send x ""))
+
+talkBasicFun chan botState (SendEvent message)
+    = case words $ contentMsg message of
+      (stripPrefix "!countbots" ->  Just r):x -> sendPacket botState Who >> writeChan chan (msgID message)
+      (stripPrefix "!help" -> Just _):r:_ -> when (filter isAlphaNum r == filter isAlphaNum (botName botState))
+                                             $ sendPacket botState $ Send "Help: !countbots for counting the current bots in the channel." $ msgID message
+      _ -> return ()
+talkBasicFun chan botState (WhoReply x y)
+ =  readChan chan >>= sendPacket botState . Send (show $ length $ filter (isPrefixOf "bot:" . userID) y)
+
+
+
+talkBasicFun _ _ _ = return ()
