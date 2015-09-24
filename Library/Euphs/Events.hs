@@ -61,7 +61,7 @@ instance J.FromJSON EuphEvent where
                         <*> ( v J..: "data" >>= (J..: "from"))
      "who-reply" ->
           WhoReply      <$> v J..: "id"
-                        <*> v J..: "data"
+                        <*> (v J..: "data" >>= (J..: "listing"))
      "join-event" ->
           JoinEvent     <$> v J..: "data"
      "part-event" ->

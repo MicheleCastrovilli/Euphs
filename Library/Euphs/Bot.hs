@@ -25,10 +25,12 @@ import qualified System.IO.Streams.SSL       as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 import qualified Data.ByteString.Lazy        as B
 import qualified Data.Text                   as T
+import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
+import           Data.Char                  (isSpace)
 import           Data.List
 import           Control.Exception           --(finally, catch, SomeException
-{-import           Control.Monad.Trans         (liftIO)-}
+import           Control.Monad.Trans         (liftIO)
 import           Control.Monad
 import           Data.Time.Clock.POSIX
 import           Control.Concurrent
@@ -93,23 +95,25 @@ botLoop botNick room closed botFunct conn = do
           do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
-          -- liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+          --liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
           case evt of
             Just (PingEvent _ _) -> do
                                            {-putStrLn "PING!"-}
                                            time <- getPOSIXTime
                                            sendPacket botState (PingReply $ round time)
             Just (NickReply _ user)   ->  putMVar myAgent user
-            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!vuptime" -> Just r) _ _)) ->
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!uptime @" ++ botNick)  -> Just r) _ _)) ->
                  getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
-            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
+            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just r) _ _)) -> when (null $ filter (not .isSpace) r) $ sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
             Nothing                   ->  return ()
-          )) (\ (SomeException _) -> closeConnection botState )
+          )) (\ (SomeException _) -> closeConnection botState True )
 
         sendPacket botState $ Nick botNick
         putStrLn $ "Connected to Euphoria! With nick: " ++ botNick ++ " and in the room: " ++ botRoom botState
-        _ <- readMVar closed
+
+        let loop x = if x then return () else loop x in readMVar closed >>= loop
         void $ threadDelay 1000000
         {-forkIO $ forever (-}
             {-do-}
@@ -138,10 +142,10 @@ sendPacket botState euphPacket =
       seqNum <- getNextPacket $ packetCount botState
       WS.sendTextData (botConnection botState) $ J.encode (Command seqNum euphPacket)
 
-closeConnection :: BotState -> IO ()
-closeConnection botState =
+closeConnection :: BotState -> Bool -> IO ()
+closeConnection botState main =
   do
-  _ <- tryPutMVar (closedBot botState) True
+  _ <- tryPutMVar (closedBot botState) main
   WS.sendClose (botConnection botState) $ T.pack ""
 
 getBotAgent :: BotState -> IO UserData

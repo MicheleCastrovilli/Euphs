@@ -35,9 +35,9 @@ DJBot TODO:
     * [ ] Blind titles for show/event mode
     * [ ] Possibility for locking/unlocking the queue to the event host
     * [ ] Various verbosity levels
-  * [ ] Allow ytid only !vq or !vqf
+  * [x] Allow ytid only !vq or !vqf
   * [ ] Add optional flag to !vlist to show only video titles, without the playing
-    * [ ] Add also flag to list titles with full video links (with no playing)
+    * [x] Add also flag to list titles with full video links (with no playing)
   * [ ] Integrate it better with SongMaster
   * [ ] Make it accept the NeonDJBot commands (without the v), if the other DJ is not present
-
+    * [x] Made it so it accepts only the without v commands
