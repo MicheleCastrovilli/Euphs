@@ -29,7 +29,7 @@ main = do
           \E - <room argument> Starts HeliumDJBot in the room specified\n\
           \C - <room argument> Starts  CounterBot in the room specified\
           \F - <room argument> Starts  FortuneBot in the room specified\n\
-          \M - <room argument> Starts  FortuneBot in the room specified\n\
+          \M - <room argument> Starts  HaskellBot in the room specified\n\
           \T - <room argument> Starts  TestTagBot in the room specified\n"
        else if head args == "E"  then
             do
@@ -44,7 +44,7 @@ main = do
         else if head args == "F" then
           euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
         else if head args == "M" then
-          euphoriaBot "MuevalBot" (args !! 1) muevalFunction
+          euphoriaBot "HaskellBot" (args !! 1) muevalFunction
         else if head args == "T" then
           getTagFunction >>= (euphoriaBot "TestTagBot" (args !! 1) . tagFunction)
         else if head args == "Talk" then
@@ -102,10 +102,15 @@ countFunction _ _ _ =
 
 muevalFunction :: BotFunction
 muevalFunction botState (SendEvent message)
-  = let a = stripPrefix "!haskell" $ contentMsg message in
-      case a of
-        Nothing -> return ()
-        Just x -> readProcess' "mueval" ["-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+  = case words (contentMsg message) of
+      "!haskell" : _ -> case stripPrefix "!haskell" $ contentMsg message of
+                          Nothing -> return ()
+                          Just x -> readProcess' "mueval" ["-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+      "!hoogle"  : _ -> case stripPrefix "!hoogle" $ contentMsg message of
+                          Nothing -> return ()
+                          Just x -> readProcess' "hoogle" ["search" , x] [] >>= (\y -> sendPacket botState $ Send (unlines $ take 3 $ lines y) $ msgID message)
+
+      _ -> return  ()
 
 muevalFunction _ _ = return ()
 
