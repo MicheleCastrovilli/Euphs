@@ -96,11 +96,9 @@ botLoop botNick room closed botFunct conn = do
           msg <- WS.receiveData conn :: IO T.Text
           let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
           --liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
+          T.putStrLn msg
           case evt of
-            Just (PingEvent _ _) -> do
-                                           {-putStrLn "PING!"-}
-                                           time <- getPOSIXTime
-                                           sendPacket botState (PingReply $ round time)
+            Just (PingEvent x _) -> sendPacket botState (PingReply x)
             Just (NickReply _ user)   ->  putMVar myAgent user
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!uptime @" ++ botNick)  -> Just r) _ _)) ->
                  getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
