@@ -15,7 +15,7 @@ data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  , sslPort    :: Bool      -- ^ Whether to use wss or ws
                  , roomList   :: String    -- ^ A list of initial rooms separated by whitespace
                  , showHelp   :: Bool      -- ^ Print help on startup
-                 , logTarget  :: FilePath    -- ^ The log file to write to.
+                 , logTarget  :: FilePath  -- ^ The log file to write to.
                                            -- Fall back to 'stdout' when
                                            -- empty
                  , botAccount :: FilePath  -- ^ Email and password for logging into the account
