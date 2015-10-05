@@ -33,7 +33,7 @@ main = do
           \T - <room argument> Starts  TestTagBot in the room specified\n"
        else if head args == "E"  then
             do
-            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (if length args > 3 then (args !! 2) else "False") (args !! 1)
+            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (if length args >= 3 then (args !! 2) else "False") (args !! 1)
             _ <- if length args >= 4 then void $ forkIO (euphoriaBot "♪|HeliumDJBot" (args !! 3) $ ytFunction (ytFun {noPlay = True})) else return ()
             euphoriaBot "♪|HeliumDJBot" (args !! 1) $ ytFunction ytFun
         else if head args == "C" then

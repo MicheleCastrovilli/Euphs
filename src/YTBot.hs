@@ -182,9 +182,9 @@ parseISO8601 x =
 
 retrieveYtData :: String -> YTState -> IO (Either String YTMetadata)
 retrieveYtData ytId ytState = do
-  putStrLn ytId
+  --putStrLn ytId
   ytJson <- simpleHttp $  apiUrl ++ ytId ++ apiToken ( apiKey ytState)
-  B.putStrLn ytJson
+  --B.putStrLn ytJson
   return $ J.eitherDecode ytJson
 
 ytLoop :: BotState -> YTState -> IO ()
@@ -408,7 +408,7 @@ queueSongsInt :: [String] -> BotState -> YTState -> MessageID -> UserData -> Int
 queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
   do
   threadDelay 1000000
-  putStrLn x
+  --putStrLn x
   ytData <- catch (retrieveYtData x ytState) (\ (SomeException e) -> return $ Left $ show e)
   case ytData of
     Left err -> do
