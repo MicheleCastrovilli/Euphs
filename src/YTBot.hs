@@ -11,6 +11,7 @@ import           Euphoria.Commands
 import           Control.Concurrent
 import           Control.Applicative
 import           Control.Monad      (forever, mzero, void, when, unless, liftM2 , ap)
+import           Control.Retry
 import           Data.List
 import           Network.HTTP.Conduit
 import           Data.Char
@@ -75,13 +76,15 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
      (stripPrefix "!dskip"         -> Just _) :_      -> dramaticSkip ytState botState
      (stripPrefix "!dumpq"         -> Just _) :_      -> dumpQueue ytState botState mesgID
      (stripPrefix "!queuefirst"    -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser 1
-     (stripPrefix "!restricted"    -> Just _) :x      -> showRestrictions ytState botState mesgID (fromMaybe "" $ safeHead x) False
+     (stripPrefix "!restrict"      -> Just _) :x      -> showRestrictions ytState botState mesgID (fromMaybe "" $ safeHead x) False
      (stripPrefix "!allowed"       -> Just _) :x      -> showRestrictions ytState botState mesgID (fromMaybe "" $ safeHead x) True
      (stripPrefix "!qf"            -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser 1
      (stripPrefix "!q"             -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser (-1)
      (stripPrefix "!sub"           -> Just _) :n:y:_  -> replaceSong botState ytState mesgID sndUser n y
      (stripPrefix "!ins"           -> Just _) :n:x    -> insertSongs x botState ytState mesgID sndUser n
      (stripPrefix "!del"           -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
+     (stripPrefix "!rem"           -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
+     (stripPrefix "!rm"            -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
      (stripPrefix "!list"          -> Just _) :x      -> listQueue ytState botState mesgID $ getOpts x
      (stripPrefix "!skip"          -> Just _) :_      -> skipSong ytState
      (stripPrefix "!kill"          -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState)) (sendPacket botState (Send "Bot is kill." mesgID) >> closeConnection botState True)
@@ -91,6 +94,7 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
                                                          $ sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
      (stripPrefix "!help"          -> Just _) :_      -> sendPacket botState $ Send (helpFunShort $ botName botState) mesgID
      (stripPrefix "!switch"        -> Just _) :x      -> switchSongs ytState botState mesgID x
+     (stripPrefix "!swap"          -> Just _) :x      -> switchSongs ytState botState mesgID x
      (stripPrefix "!test"          -> Just r) :_      -> queueSongs [r] botState ytState mesgID sndUser (-1)
      {-
       -(stripPrefix "!vsave"          -> Just _) :x:_    -> saveList botState ytState mesgID x
@@ -183,9 +187,14 @@ parseISO8601 x =
 retrieveYtData :: String -> YTState -> IO (Either String YTMetadata)
 retrieveYtData ytId ytState = do
   --putStrLn ytId
-  ytJson <- simpleHttp $  apiUrl ++ ytId ++ apiToken ( apiKey ytState)
+  ytJson <- recoverAll limitedBackoff $ simpleHttp $ apiUrl ++ ytId ++ apiToken (apiKey ytState)
   --B.putStrLn ytJson
   return $ J.eitherDecode ytJson
+
+
+limitedBackoff :: RetryPolicy
+limitedBackoff = exponentialBackoff 50 <> limitRetries 5
+
 
 ytLoop :: BotState -> YTState -> IO ()
 ytLoop botState ytState = forever $ do
@@ -244,7 +253,7 @@ getFormattedTime x = let hours =  div x 3600
 helpFun :: String -> String
 helpFun botName' =
    "I am @" ++ botName' ++ ", a bot created by viviff for use with rooms with video players.\n\
-   \This bot replaces NeonDJBot, the original &music bot by Drex.\n\n\
+   \This bot continues the work of NeonDJBot, the original &music bot by Drex.\n\n\
    \COMMANDS:\n\
    \‣ Commands are case insensitive.\n\
    \‣ Youtube.com links or ytLink's are of the form:\n  youtube.com/watch?v=FTQbiNvZqaY\n or simply the ytid, FTQbiNvZqaY, separated by a space or a comma.\n\
@@ -257,10 +266,11 @@ helpFun botName' =
    \• !qf <ytLink> <ytLink>  [-id or -ytid] (!queuefirst):\n  Same as !q but queues at the start of the queue.\n\
    \• !ins <pos> <ytLink> <ytLink>  [-id or -ytid] (!insert):\n  Inserts the song(s) at position <pos>,\n  moving the existing songs down.\n\
    \• !sub <pos> <ytLink>  (!substitute):\n  Substitutes the song at position <pos>\n  with the new ytLink.\n\
-   \• !del <pos> <num>  (!delete):\n  Deletes <num> songs from the queue\n  starting from the <pos> position.\n\
+   \• !del <pos> <num>  (!delete or !rem, !rm, !remove):\n  Deletes <num> songs from the queue\n  starting from the <pos> position.\n\
    \• !list [-v or -verbose][-r or -restricted][-id or -ytid][-links][-comma][-space]:\n  Shows a list of the songs currently in the queue,\n\
    \  -verbose adds ytLinks while keeping the titles.\n\
-   \  -links and -id show only the links or ids without other info, separated by -comma and/or -space [default].\n\n\
+   \  -links and -id show only the links or ids without other info, separated by -comma and/or -space [default].\n\
+   \• !switch <pos1> <pos2> (!swap):\n  Swaps the position of the two songs in the queue.\n\n\
    \Playback Operation:\n\
    \• !skip:\n  Skips the currently playing song,\n  if there is a next song in the queue.\n\
    \• !dskip  (!dramaticskip):\n  Skips in any case, humorously, like the old times :D\n\
@@ -268,7 +278,7 @@ helpFun botName' =
    \• !play <ytLink>:\n  If no bots are present, this plays a single song.\n  It interrupts any current song,\n  no link shorteners allowed.\n\n\
    \Country Restrictions:\n\
    \Shows information for the current song, or optionally for one at position <pos>.\n\
-   \• !restricted [<pos>]:\n  Shows the countries in which the song is not playable.\n\
+   \• !restrict [<pos> or <ytLink>]:\n  Shows the countries in which the song is not playable.\n\
    \• !allowed [<pos>]:\n  Shows the countries in which the song is playable.\n\n\
    \Extras:\n\
    \• !nls  (!neonlightshow): Light Show!\n\n\
@@ -276,7 +286,9 @@ helpFun botName' =
    \• !pause: Pauses the bot, temporarily.\n\
    \• !restore: Restores the bot, from a pause.\n\
    \• !kill: Kills the bot, forever.\n\
-   \• !ping: Pong!\n"
+   \• !ping: Pong!\n\n\n\
+   \Feel free to report a problem here -> https://gitreports.com/issue/MicheleCastrovilli/Euphs\n\
+   \See the current status and issues here -> https://github.com/MicheleCastrovilli/Euphs/issues"
 
 helpFunShort :: String -> String
 helpFunShort botName' =
@@ -478,7 +490,8 @@ showRestrictions ytState botState mesgID posR allowed=
     let reply = case lastPlayedSong of
                 Nothing -> "No song played or out of queue boundaries."
                 Just x ->  let restr = if allowed then showAllowed x else showRestrict x  in
-                             if null restr then "No Restrictions!" else restr
+                    "["++ fromMaybe "LP" (fmap show pos) ++ "] \"" ++
+                    title x ++ "\"\n        " ++ if null restr then "No Restrictions!" else restr
     sendPacket botState $ Send reply mesgID
 
 
@@ -573,14 +586,14 @@ switchSongs ytState botState mesgID x =
     (sendPacket botState $ Send "Elements switched!" mesgID)
   else
     putMVar (queue ytState) curQ >>
-    (sendPacket botState $ Send "Error on parsing the command or index out of ranges. Usage : !switch <pos1> <pos2>" mesgID)
+    (sendPacket botState $ Send "Error on parsing the command or index out of ranges. Usage : !switch (or !swap) <pos1> <pos2>" mesgID)
 
 swap :: Int -> Int -> [a] -> [a]
 swap n1 n2 xs = zipWith selectElement [1..] xs
   where
     selectElement i x
-         | i == n1     = xs !! n2
-         | i == n2     = xs !! n1
+         | i == n1     = xs !! (n2-1)
+         | i == n2     = xs !! (n1-1)
          | otherwise = x
 
 ------------------------------------- TAG BOT ---------------------------------------
