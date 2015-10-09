@@ -33,7 +33,7 @@ main = do
           \T - <room argument> Starts  TestTagBot in the room specified\n"
        else if head args == "E"  then
             do
-            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (if length args > 3 then (args !! 2) else "False") (args !! 1)
+            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (if length args >= 3 then (args !! 2) else "False") (args !! 1)
             _ <- if length args >= 4 then void $ forkIO (euphoriaBot "♪|HeliumDJBot" (args !! 3) $ ytFunction (ytFun {noPlay = True})) else return ()
             euphoriaBot "♪|HeliumDJBot" (args !! 1) $ ytFunction ytFun
         else if head args == "C" then
@@ -105,7 +105,7 @@ muevalFunction botState (SendEvent message)
   = case words (contentMsg message) of
       "!haskell" : _ -> case stripPrefix "!haskell" $ contentMsg message of
                           Nothing -> return ()
-                          Just x -> readProcess' "mueval" ["-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+                          Just x -> readProcess' "mueval" ["-m","Numeric", "-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
       "!hoogle"  : _ -> case stripPrefix "!hoogle" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> readProcess' "hoogle" ["search" , x] [] >>= (\y -> sendPacket botState $ Send (unlines $ take 3 $ lines y) $ msgID message)
