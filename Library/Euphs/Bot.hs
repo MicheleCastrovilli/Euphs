@@ -34,10 +34,10 @@ import           Control.Monad.Trans         (liftIO)
 import           Control.Monad
 import           Data.Time.Clock.POSIX
 import           Control.Concurrent
-import           Euphoria.Events
-import           Euphoria.Commands
-import           Euphoria.Types
-
+import           Euphs.Events
+import           Euphs.Commands
+import           Euphs.Types
+import           Euphs.Options
 
 myHost :: String
 myHost = "euphoria.io"
@@ -66,6 +66,19 @@ data BotState = BotState {
   closedBot     :: MVar Bool,
   startTime     :: Integer
 }
+
+data Hooks = Hooks {
+    connHook :: IO (),
+    eventsHook :: [EuphEvent -> IO ()],
+    discHook :: IO ()
+}
+
+bot :: Hooks -> IO ()
+bot hs  = do
+    (opts, _) <- getArgs >>= parseOpts
+    when (showHelp opts) showUsageAndExit
+
+
 
 euphoriaBot :: BotName -> RoomName -> BotFunction -> IO ()
 euphoriaBot botNick room botFunction = SSL.withOpenSSL $ do
@@ -111,7 +124,7 @@ botLoop botNick room closed botFunct conn = do
         sendPacket botState $ Nick botNick
         putStrLn $ "Connected to Euphoria! With nick: " ++ botNick ++ " and in the room: " ++ botRoom botState
 
-        let loop x = if x then return () else loop x in readMVar closed >>= loop
+        let loop x = (unless x $ takeMVar closed >>= loop) in takeMVar closed >>= loop
         void $ threadDelay 1000000
         {-forkIO $ forever (-}
             {-do-}
