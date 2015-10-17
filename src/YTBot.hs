@@ -255,7 +255,7 @@ helpFun botName' =
    "I am @" ++ botName' ++ ", a bot created by viviff for use with rooms with video players.\n\
    \This bot continues the work of NeonDJBot, the original &music bot by Drex.\n\n\
    \COMMANDS:\n\
-   \‣ Commands are case insensitive.\n\
+   \‣ Commands are case insensitive and ignore suffixes.\n\
    \‣ Youtube.com links or ytLink's are of the form:\n  youtube.com/watch?v=FTQbiNvZqaY\n or simply the ytid, FTQbiNvZqaY, separated by a space or a comma.\n\
    \‣ Some link shorteners are accepted, like:\n  youtu.be/FTQbiNvZqaY\n\
    \‣ Not accepted in links: playlists or start-times.\n\n\
@@ -278,7 +278,7 @@ helpFun botName' =
    \• !play <ytLink>:\n  If no bots are present, this plays a single song.\n  It interrupts any current song,\n  no link shorteners allowed.\n\n\
    \Country Restrictions:\n\
    \Shows information for the current song, or optionally for one at position <pos>.\n\
-   \• !restrict [<pos> or <ytLink>]:\n  Shows the countries in which the song is not playable.\n\
+   \• !restrict [<pos> or <ytLink>](!restrictions or !restricted):\n  Shows the countries in which the song is not playable.\n\
    \• !allowed [<pos>]:\n  Shows the countries in which the song is playable.\n\n\
    \Extras:\n\
    \• !nls  (!neonlightshow): Light Show!\n\n\
