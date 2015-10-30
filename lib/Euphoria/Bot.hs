@@ -9,6 +9,7 @@ module Euphoria.Bot (
   getBotAgent,
   botName,
   botRoom,
+  botAgent,
   BotName,
   RoomName,
   BotAgent,

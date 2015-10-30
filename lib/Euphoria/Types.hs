@@ -12,7 +12,7 @@ data UserData = UserData { userID     :: String,
                            serverID   :: String,
                            serverEra  :: String,
                            sessionID  :: String }
-      deriving (Eq,Show)
+      deriving (Eq,Show, Read)
 
 data MessageData = MessageData { timeRecieved :: Integer,
                                  msgID        :: MessageID,
