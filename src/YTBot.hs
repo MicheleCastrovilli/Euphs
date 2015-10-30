@@ -29,6 +29,7 @@ import qualified Data.Sequence as SQ
 import           Text.Regex.Base
 import           Text.Regex.TDFA
 import qualified Data.Foldable as F
+import qualified Debug.Trace as T
 
 data YTState = YTState {
               queue      :: MVar YTQueue,
@@ -153,7 +154,7 @@ ytFunction ytState botState se@(SnapshotEvent {}) =
 ytFunction _ _ _ = return ()
 
 addToBack :: YTQueueItem -> SQ.Seq YTQueueItem -> SQ.Seq YTQueueItem
-addToBack yt sq = if length sq < sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
+addToBack yt sq = if length sq > sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
 
 instance J.FromJSON YTMetadata where
   parseJSON (J.Object v) = do
@@ -174,12 +175,12 @@ instance J.FromJSON YTMetadata where
 
 getYtReq :: String -> Maybe YTRequest
 getYtReq y = do
-             let m1 = "youtube.com/watch?v=([A-Za-z0-9_\\-]{9,})" :: String
+             let m1 = "youtube.com/watch\\?v=([A-Za-z0-9_\\-]{9,})" :: String
              let m2 = "youtu.be/([A-Za-z0-9_\\-]{9,})" :: String
              let t1 = "(?:&|\\?)?t=([0-9]+h)?([0-9]+m)?([0-9]+s?)?" :: String
              (before, after, _, groups)  <- y =~~ m1 <|> y =~~ m2 :: Maybe (String, String, String, [String])
              let startTime = maybe 0 parseTime ((after =~~  t1) :: Maybe (String, String, String, [String]))
-             return $ (groups !! 0, startTime)
+             return $ (groups !! 0, T.traceShowId startTime)
              where readFun x = fromMaybe 0 (maybeRead2 (takeWhile isNumber x) :: Maybe Integer)
                    parseTime (_, _, _, grp) = sum $ zipWith (*) [3600, 60, 1] $ map readFun grp
 
@@ -228,7 +229,6 @@ ytLoop botState ytState = forever $ do
       $ Send (ytDescription (SQ.index x 0) ++ restr ++ "Next: " ++
               fromMaybe "Nothing" (titleAuthor <$> (safeHeadSeq $ SQ.drop 1 x))) ""
     putStrLn $ "Playing Song! " ++ title (ytmeta $ SQ.index x 0)
-    lp <- takeMVar $ lastPlayed ytState
     curTime <- getPOSIXTime
     modifyMVarMasked_ (lastPlayed ytState)  (return . addToBack ((SQ.index x 0) {timePlayed = round curTime}))
 
@@ -351,7 +351,7 @@ getTimeRemaining :: YTState -> IO Integer
 getTimeRemaining ytState =
   do
   lastPlay <- takeMVar (lastPlayed ytState)
-  putMVar (lastPlayed ytState) lastPlay
+  putMVar (lastPlayed ytState) (lastPlay)
   curTime <- getPOSIXTime
   case SQ.null lastPlay of
     True -> return 0
@@ -405,7 +405,7 @@ listQueue ytState botState mesgID opts =
              else
               "")
             )
-         (SQ.mapWithIndex (,) ytSeq) $ fmap getFormattedTime $ getWaitTimes ytSeq timeRemaining))
+         (SQ.mapWithIndex (\x y-> (x+1,y)) ytSeq) $ fmap getFormattedTime $ getWaitTimes ytSeq timeRemaining))
        mesgID)
 
 
@@ -480,7 +480,9 @@ queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
                   let updatedQ = SQ.take (posT-1) ytQ SQ.>< SQ.singleton yt SQ.>< SQ.drop (posT-1) ytQ
                   putMVar (queue ytState) updatedQ
                   timeRemaining <- getTimeRemaining ytState
-                  let (_ SQ.:> timeQueued) = SQ.viewr $ SQ.take posT $ getWaitTimes updatedQ timeRemaining
+                  let timeQueued =  let x = SQ.take posT $ getWaitTimes updatedQ timeRemaining in
+                                        if SQ.null x then 0 else SQ.index x (SQ.length x - 1)
+                  putStrLn $ show timeQueued
                   void $ tryPutMVar (play ytState) True
                   sendPacket bs (Send ("["++ show posT  ++  "] \""
                                   ++ title (ytmeta yt) ++ "\" will be played " ++
