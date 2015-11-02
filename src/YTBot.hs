@@ -258,11 +258,13 @@ getWaitTimes :: YTQueue -> Integer -> SQ.Seq Integer
 getWaitTimes ytList currentWait = fmap (+ currentWait) $ SQ.scanl (\x y -> x + stopTime y - startTime y + restingTime) 0 ytList
 
 getFormattedTime :: Integer -> String
-getFormattedTime x = let hours =  div x 3600
+getFormattedTime x = let hours  =  div x 3600
                          minutes = div (x-hours*3600) 60
                          seconds = (x - hours*3600 - minutes*60)
                          in if x > 0 then
                              intercalate ":" $ map auxTime [hours,minutes,seconds]
+                            else if x < 0 then
+                             "past"
                             else
                              "now"
                       where auxTime :: Integer -> String
@@ -338,9 +340,9 @@ helpFunShort botName' =
 
 ytDescription :: YTQueueItem -> String
 ytDescription yt = titleAuthorDuration yt ++ "\n!play youtube.com/watch?v=" ++ ytID (ytmeta yt) ++
-                   aux "t" (startTime yt) ++ aux "te" (stopTime yt) ++ "\n"
+                   aux "t" (startTime yt) ++ aux1 "te" (stopTime yt) (duration $ ytmeta yt) ++ "\n"
                    where aux c t = if t /= 0 then "&"++c++"=" ++ show t else ""
-
+                         aux1 c t t' = if t /= 0 && t /= t'  then "&"++c++"=" ++ show t else ""
 titleAuthor :: YTQueueItem -> String
 titleAuthor x = title (ytmeta x) ++ " from [" ++ name (requester x) ++  "]"
 
@@ -402,7 +404,7 @@ listQueue ytState botState mesgID opts =
              "Queue: " ++ intercalate (if comma then if links || space then ", " else "," else " ")
                 (map ((++) (if links then "youtube.com/watch?v=" else "" ) . ytID   . ytmeta) $ F.toList ytSeq)
              else
-        "[ # ][ wait  time ]\n" ++
+        "[ # ][ " ++ switchT back "past" "wait" ++ "  time ]\n" ++
         unlines (F.toList $
           SQ.zipWith (\y z ->
             numberPart (fst y)  ++
@@ -418,6 +420,7 @@ listQueue ytState botState mesgID opts =
                verbosePart y verbose ids =  concat [spaces ++ youtubeIdLinks y ids | verbose]
                restrictPart y restr = concat (let restrict = showRestrict $ ytmeta y in
                                            [spaces ++ shorten 56 restrict | restr && (not $ null restrict)])
+               switchT x y z = if x then y else z
 
 
 replaceSong :: BotState -> YTState -> MessageID -> UserData -> String -> String -> IO ()
@@ -470,7 +473,7 @@ queueSongs text =
 queueSongsInt :: [YTRequest] -> BotState -> YTState -> MessageID -> UserData -> Int -> IO ()
 queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
   do
-  threadDelay 10000
+  threadDelay 500000
   --putStrLn x
   ytData <- catch (retrieveRequest ytState x sndUser 0) (\ (SomeException e) -> return $ Left $ show e)
   case ytData of
@@ -629,16 +632,12 @@ switchSongs ytState botState mesgID x =
   let num2 = fromMaybe (-1) $ safeHead (drop 1 x) >>= (\y -> maybeRead2 y ::  Maybe Int)
   curQ <- takeMVar $ queue ytState
   if ( and [num1 <= length curQ, num2 <= length curQ, num1 >= 1, num2 >= 1] ) then
-    putMVar (queue ytState) (
-    if num1 > num2 then
-      seqSwap num2 num1 curQ
-    else
-      seqSwap num1 num2 curQ
-    ) >>
-    (sendPacket botState $ Send "Elements switched!" mesgID)
+    putMVar (queue ytState) (seqSwap num1 num2 curQ) >>
+    (sendPacket botState $ Send (swappedMsg num1 num2 curQ) mesgID)
   else
     putMVar (queue ytState) curQ >>
     (sendPacket botState $ Send "Error on parsing the command or index out of ranges. Usage : !switch (or !swap) <pos1> <pos2>" mesgID)
+  where swappedMsg num1 num2 q = let sw n = title (ytmeta $ SQ.index q (n-1)) in "Swapped \"" ++ sw num1 ++ "\" with \"" ++ sw num2 ++ "\"."
 
 swap :: Int -> Int -> [a] -> [a]
 swap n1 n2 xs = zipWith selectElement [1..] xs
@@ -649,7 +648,9 @@ swap n1 n2 xs = zipWith selectElement [1..] xs
          | otherwise = x
 
 seqSwap :: Int -> Int -> SQ.Seq a -> SQ.Seq a
-seqSwap n1 n2 s = SQ.update n2 (SQ.index s n1) $ SQ.update n1 (SQ.index s n2) s
+seqSwap n1' n2' s = let n1 = n1' - 1
+                        n2 = n2' - 1 in
+                        SQ.update n2 (SQ.index s n1) $ SQ.update n1 (SQ.index s n2) s
 
 ------------------------------------- TAG BOT ---------------------------------------
 
