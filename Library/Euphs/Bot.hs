@@ -9,6 +9,7 @@ module Euphoria.Bot (
   getBotAgent,
   botName,
   botRoom,
+  botAgent,
   BotName,
   RoomName,
   BotAgent,
@@ -24,6 +25,7 @@ import qualified OpenSSL.Session             as SSL
 import qualified System.IO.Streams.SSL       as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 import qualified Data.ByteString.Lazy        as B
+import qualified Data.ByteString.Lazy.Char8  as BC
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
 import qualified Data.Aeson                  as J
@@ -106,10 +108,10 @@ botLoop botNick room closed botFunct conn = do
 
         _ <- forkIO $ catch ( forever (
           do
-          msg <- WS.receiveData conn :: IO T.Text
-          let evt = J.decode (WS.toLazyByteString msg) :: Maybe EuphEvent
-          --liftIO $ T.putStrLn $ maybe  (T.append "Can't parse this : " msg) (T.pack . show) evt
-          -- T.putStrLn msg
+          msg <- WS.receiveData conn :: IO B.ByteString
+          --putStrLn $ BC.unpack msg
+          let evt = J.decode (msg) :: Maybe EuphEvent
+          --liftIO $ putStrLn $ maybe  ("Can't parse this : " ++ BC.unpack msg) (show) evt
           case evt of
             Just (PingEvent x _) -> sendPacket botState (PingReply x)
             Just (NickReply _ user)   ->  putMVar myAgent user
@@ -118,7 +120,7 @@ botLoop botNick room closed botFunct conn = do
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
             Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just r) _ _)) -> when (null $ filter (not .isSpace) r) $ sendPacket botState (Send "Pong!" mesgID)
             Just x                    ->  void $ forkIO $ botFunct botState x
-            Nothing                   ->  return ()
+            Nothing                   ->  putStrLn $ "Can't parse this: " ++ BC.unpack msg
           )) (\ (SomeException _) -> closeConnection botState True )
 
         sendPacket botState $ Nick botNick

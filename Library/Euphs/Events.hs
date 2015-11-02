@@ -29,6 +29,10 @@ data EuphEvent =
                         userData  :: UserData }
       | JoinEvent     { userData  :: UserData }
       | PartEvent     { userData  :: UserData }
+      | HelloEvent    { userData  :: UserData
+                      , privateRoom :: Bool
+                      , version   :: String
+                      }
       deriving (Show)
 
 
@@ -68,6 +72,10 @@ instance J.FromJSON EuphEvent where
           PartEvent     <$> v J..: "data"
      "log-reply" ->
           LogReply      <$> v J..: "data"
+     "hello-event" ->
+          HelloEvent <$> (v J..: "data" >>= (J..: "session"))
+                     <*> (v J..: "data" >>= (J..: "room_is_private"))
+                     <*> (v J..: "data" >>= (J..: "version"))
      "snapshot-event" ->
           SnapshotEvent <$> (v J..: "data" >>= (J..: "identity"))
                         <*> (v J..: "data" >>= (J..: "session_id"))
