@@ -490,7 +490,7 @@ queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
                 else
                   do
                   ytQ <- takeMVar (queue ytState)
-                  let posT =  if pos /= -1 then pos else length ytQ + 1
+                  let posT =  if pos >= 1 && pos <= length ytQ + 1 then pos else length ytQ + 1
                   let updatedQ = SQ.take (posT-1) ytQ SQ.>< SQ.singleton yt SQ.>< SQ.drop (posT-1) ytQ
                   putMVar (queue ytState) updatedQ
                   timeRemaining <- getTimeRemaining ytState
