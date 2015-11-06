@@ -435,10 +435,10 @@ replaceSong botState ytState mesgID sndUser num ytLink =
     Left err -> putStrLn err >> sendPacket botState (Send "Can't parse the link, invalid ids or impossible to contact google api" mesgID)
     Right yt -> do
                 ytQ <- takeMVar (queue ytState)
-                if numR < 0 || numR > length ytQ  then
+                if numR <= 0 || numR > length ytQ  then
                   sendPacket botState (Send "Number not in queue!" mesgID) >> putMVar (queue ytState) ytQ
                 else
-                  putMVar (queue ytState)  (SQ.update numR yt ytQ) >>
+                  putMVar (queue ytState)  (SQ.update (numR-1) yt ytQ) >>
                           sendPacket botState ( Send ("Replaced ["++ num ++"] with : " ++ (title $ ytmeta yt)) mesgID)
 
 skipSong :: YTState -> IO ()
@@ -490,7 +490,7 @@ queueSongsInt (x:xs) bs ytState mesgID sndUser pos=
                 else
                   do
                   ytQ <- takeMVar (queue ytState)
-                  let posT =  if pos /= -1 then pos else length ytQ + 1
+                  let posT =  if pos >= 1 && pos <= length ytQ + 1 then pos else length ytQ + 1
                   let updatedQ = SQ.take (posT-1) ytQ SQ.>< SQ.singleton yt SQ.>< SQ.drop (posT-1) ytQ
                   putMVar (queue ytState) updatedQ
                   timeRemaining <- getTimeRemaining ytState
