@@ -12,7 +12,7 @@ import System.Environment
 
 data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  , heimPort   :: Int       -- ^ The port to connect to
-                 , sslPort    :: Bool      -- ^ Whether to use wss or ws
+                 , useSSL     :: Bool      -- ^ Whether to use wss or ws
                  , roomList   :: String    -- ^ A list of initial rooms separated by whitespace
                  , showHelp   :: Bool      -- ^ Print help on startup
                  , logTarget  :: FilePath  -- ^ The log file to write to.
@@ -27,7 +27,7 @@ data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
 defaults :: Opts
 defaults = Opts { heimHost   = "euphoria.io"
                 , heimPort   = 443
-                , sslPort    = True
+                , useSSL     = True
                 , roomList   = "test"
                 , showHelp   = False
                 , logTarget  = ""
@@ -46,7 +46,7 @@ options =
     , Option "r" ["rooms", "room"]
         (ReqArg (\arg opt -> opt {roomList = arg}) "ROOMS") "Rooms to join"
     , Option "s" ["nossl"]
-        (NoArg (\opt -> opt {sslPort = False})) "Disable SSL"
+        (NoArg (\opt -> opt {useSSL = False})) "Disable SSL"
     , Option "l" ["log"]
         (ReqArg (\arg opt -> opt {logTarget = arg}) "LOG") "Logging FilePath"
     , Option "i" ["identity"]

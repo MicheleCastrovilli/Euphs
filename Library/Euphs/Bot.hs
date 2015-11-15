@@ -52,33 +52,61 @@ myPathBef = "/room/"
 myPathAft :: String
 myPathAft = "/ws"
 
-type PacketID = MVar Int
+type PacketID = TVar Int
 type BotName = String
 type RoomName = String
-type BotAgent = MVar UserData
+type BotAgent = TVar UserData
 type BotFunction = BotState -> EuphEvent -> IO ()
 
+type Log = WriterT String IO
+type Net = ReaderT Bot Log
 
-data BotState = BotState {
+data Bot = Bot {
   botConnection :: WS.Connection,
   packetCount   :: PacketID,
   botAgent      :: BotAgent,
   botRoom       :: String,
   botName       :: String,
-  closedBot     :: MVar Bool,
-  startTime     :: Integer
+  startTime     :: Integer,
+  botFun        :: BotFunctions
 }
 
-data Hooks = Hooks {
-    connHook :: IO (),
-    eventsHook :: [EuphEvent -> IO ()],
-    discHook :: IO ()
+data BotFunctions = BotFunctions {
+    eventsHook :: EuphEvent -> Net (),
+    dcHook :: Maybe (IO ())
 }
 
-bot :: Hooks -> IO ()
-bot hs  = do
-    (opts, _) <- getArgs >>= parseOpts
-    when (showHelp opts) showUsageAndExit
+log :: Opts -> String -> IO ()
+log o s = if ( null $ logTarget o)
+
+io :: MonadIO m => IO a -> m a
+io = liftIO
+
+bot :: BotFunctions -> IO ()
+bot hs  = bracket (botInit) (disconnect a) (loop)
+    where loop bop = putStrLn $ snd $ runWriterT $ runReaderT bop $ botMain
+
+botInit = (opts, _) <- getArgs >>= parseOpts
+          when (showHelp opts) showUsageAndExit
+          (b, l) <- runWriterT $ botConnect opts hs
+          (if null $ logTarget opts then
+            putStrLn
+          else
+            writeFile $ logTarget opts) $ l ++ l'
+
+botMain :: Net ()
+botMain = return ()
+
+botConnect :: BotFunctions -> ReaderT Opts IO Bot
+botConnect o h = do
+    (b, w) <- runWriterT (
+                 if useSSL o then
+                     botConnectSSL o h
+                 else
+                     botConnectNoSSL o h
+              )
+
+
 
 
 
