@@ -105,7 +105,7 @@ muevalFunction botState (SendEvent message)
   = case words (contentMsg message) of
       "!haskell" : _ -> case stripPrefix "!haskell" $ contentMsg message of
                           Nothing -> return ()
-                          Just x -> readProcess' "mueval" ["-m","Numeric","-l", "/home/viviff9/MuevalDef.hs",  "-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+                          Just x -> readProcess' "mueval" ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
       "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> readProcess' "hoogle"
