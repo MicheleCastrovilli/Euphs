@@ -1,4 +1,4 @@
-module Options
+module Euphs.Options
     ( Opts(..)
     , parseOpts
     , showUsage
@@ -7,8 +7,6 @@ module Options
 
 import System.Exit
 import System.Console.GetOpt
-import System.Environment
-
 
 data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  , heimPort   :: Int       -- ^ The port to connect to
@@ -59,6 +57,7 @@ options =
         (NoArg (\opt -> opt {showHelp = True})) "Shows this help."
     ]
 
+header :: String
 header = "Usage: Euphs [options]"
 
 parseOpts :: [String] -> IO (Opts, [String])
@@ -67,9 +66,10 @@ parseOpts argv =
         (o,n,[]  ) -> return (foldl (flip id) defaults o, n)
         (_,_,errs) -> ioError (userError (concat errs ++ showUsage))
 
-
+showUsage :: String
 showUsage = usageInfo header options
 
+showUsageAndExit :: IO ()
 showUsageAndExit = do
         putStrLn showUsage
         exitSuccess

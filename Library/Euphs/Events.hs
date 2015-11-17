@@ -1,11 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Euphoria.Events where
+module Euphs.Events where
 
 import qualified Data.Aeson              as J
 import qualified Data.Text               as T
 import           Control.Monad
-import           Euphoria.Types
+import           Euphs.Types
 
 data EuphEvent =
         PingEvent     { pingTime  :: Integer,

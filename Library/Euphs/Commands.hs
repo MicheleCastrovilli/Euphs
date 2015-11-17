@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Euphoria.Commands where
+module Euphs.Commands where
 
 import qualified Data.Aeson                 as J
 import qualified Data.Text                  as T

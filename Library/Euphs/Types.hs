@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Euphoria.Types where
+module Euphs.Types where
 
 import qualified Data.Aeson                 as J
 import           Control.Monad

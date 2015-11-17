@@ -29,17 +29,18 @@ library
                        Euphs.Types
   -- other-modules:       
   other-extensions:    OverloadedStrings
-  build-depends:       base >=4.8 && <4.9,
-                       websockets >=0.9 && <0.10, 
-                       network >=2.6 && <2.7,
-                       HsOpenSSL >=0.11 && <0.12,
-                       openssl-streams >=1.2 && <1.3,
-                       io-streams >=1.3 && <1.4,
-                       bytestring >=0.10 && <0.11,
-                       aeson >=0.9 && <0.10,
-                       text >=1.2 && <1.3,
-                       time >=1.5 && <1.6,
-                       mtl >=2.2 && <2.3
+  build-depends:       base >=4.8 && <4.9
+                     , websockets >=0.9 && <0.10
+                     , network >=2.6 && <2.7
+                     , HsOpenSSL >=0.11 && <0.12
+                     , openssl-streams >=1.2 && <1.3
+                     , io-streams >=1.3 && <1.4
+                     , bytestring >=0.10 && <0.11
+                     , aeson >=0.9 && <0.10
+                     , text >=1.2 && <1.3
+                     , time >=1.5 && <1.6
+                     , mtl >=2.2 && <2.3
+                     , stm >= 2.4 && <2.5
   ghc-options :        -Wall
-  hs-source-dirs:      lib
+  hs-source-dirs:      
   default-language:    Haskell2010
