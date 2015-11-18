@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+-- | Module Declaring all the possible events the bot can receive during a connection, while putting them into a structure.
 module Euphs.Events where
 
 import qualified Data.Aeson              as J
@@ -7,26 +7,29 @@ import qualified Data.Text               as T
 import           Control.Monad
 import           Euphs.Types
 
+-- | The main Event structure, every JSON reply gets parsed into this structure, and then passed to the custom bot function.
 data EuphEvent =
-        PingEvent     { pingTime  :: Integer,
-                        nextTime  :: Integer}
-      | WhoReply      { idResp    :: String,
-                        users     :: [UserData]
+        PingEvent     { pingTime  :: Integer
+                      , nextTime  :: Integer
+                      }
+      | WhoReply      { idResp    :: String
+                      , users     :: [UserData]
                       }
       | LogReply      { messages  :: [MessageData] }
-      | SnapshotEvent { identity  :: String,
-                        sessionID :: String,
-                        version   :: String,
-                        users     :: [UserData],
-                        messages  :: [MessageData]
+      | SnapshotEvent { identity  :: String
+                      , sessionID :: String
+                      , version   :: String
+                      , users     :: [UserData]
+                      , messages  :: [MessageData]
                       }
       | SendEvent     { msgData   :: MessageData }
       | SendReply     { msgData   :: MessageData }
-      | NickEvent     { userData  :: UserData,
-                        fromNick  :: String
+      | NickEvent     { userData  :: UserData
+                      , fromNick  :: String
                       }
-      | NickReply     { idResp    :: String,
-                        userData  :: UserData }
+      | NickReply     { userData  :: UserData
+                      , fromNick  :: String
+                      }
       | JoinEvent     { userData  :: UserData }
       | PartEvent     { userData  :: UserData }
       | HelloEvent    { userData  :: UserData
@@ -48,21 +51,23 @@ instance J.FromJSON EuphEvent where
      "send-event" ->
           SendEvent     <$> ( v J..: "data" )
      "nick-reply" ->
-          NickReply     <$>  v J..: "id"
-                        <*> (UserData <$> ( v J..: "data" >>= (J..: "id"))
-                                      <*> ( v J..: "data" >>= (J..: "to"))
-                                      <*> return ""
-                                      <*> return ""
-                                      <*> ( v J..: "data" >>= (J..: "session_id"))
-                            )
+          NickReply     <$>  v J..: "data"
+                        <*> v J..: "from"
+                          -- (UserData <$> ( v J..: "data" >>= (J..: "id"))
+                          --            <*> ( v J..: "data" >>= (J..: "to"))
+                          --            <*> return ""
+                          --            <*> return ""
+                          --            <*> ( v J..: "data" >>= (J..: "session_id"))
+                          --  )
      "nick-event" ->
-          NickEvent     <$> (UserData <$> ( v J..: "data" >>= (J..: "id"))
-                                      <*> ( v J..: "data" >>= (J..: "to"))
-                                      <*> return ""
-                                      <*> return ""
-                                      <*> ( v J..: "data" >>= (J..: "session_id"))
-                            )
-                        <*> ( v J..: "data" >>= (J..: "from"))
+          NickEvent     <$> v J..: "data"
+                           -- (UserData <$> ( v J..: "data" >>= (J..: "id"))
+                           --           <*> ( v J..: "data" >>= (J..: "to"))
+                           --           <*> return ""
+                           --           <*> return ""
+                           --           <*> ( v J..: "data" >>= (J..: "session_id"))
+                           -- )
+                        <*> v J..: "from"
      "who-reply" ->
           WhoReply      <$> v J..: "id"
                         <*> (v J..: "data" >>= (J..: "listing"))

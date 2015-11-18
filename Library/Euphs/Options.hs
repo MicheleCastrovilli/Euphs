@@ -1,3 +1,4 @@
+-- | This module defines the type 'Opts' and gives a function to parse commandline arguments.
 module Euphs.Options
     ( Opts(..)
     , parseOpts
@@ -8,6 +9,7 @@ module Euphs.Options
 import System.Exit
 import System.Console.GetOpt
 
+-- | The main options structure.
 data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  , heimPort   :: Int       -- ^ The port to connect to
                  , useSSL     :: Bool      -- ^ Whether to use wss or ws
@@ -60,15 +62,18 @@ options =
 header :: String
 header = "Usage: Euphs [options]"
 
+-- | Function to parse commandline Options
 parseOpts :: [String] -> IO (Opts, [String])
 parseOpts argv =
     case getOpt Permute options argv of
         (o,n,[]  ) -> return (foldl (flip id) defaults o, n)
         (_,_,errs) -> ioError (userError (concat errs ++ showUsage))
 
+-- | Shows the usage message
 showUsage :: String
 showUsage = usageInfo header options
 
+-- | Prints the usage message to stdout and exits.
 showUsageAndExit :: IO ()
 showUsageAndExit = do
         putStrLn showUsage

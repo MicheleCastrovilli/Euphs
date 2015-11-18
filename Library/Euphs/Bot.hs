@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
-
+-- | Provides a framework to build bots connecting to <https://github.com/euphoria-io/heim heim>.
+-- This module is still a bit unstable, and between API changes, it will break a lot.
 module Euphs.Bot (
-    bot
+    Bot(..)
+  , bot
   , disconnect
 ) where
 
@@ -36,21 +38,25 @@ import           Euphs.Commands
 import           Euphs.Types
 import           Euphs.Options
 
+-- | The document path of the websocket
 roomPath :: String -> String
 roomPath room = "/room/" ++ room ++ "/ws"
 
+-- | A mutable counter for packet ids
 type PacketID = TVar Int
+-- | The mutable bot agent
 type BotAgent = TMVar UserData
 
 type Log = WriterT T.Text IO
 type Net = ReaderT Bot Log
 
+-- | The main Bot data structure.
 data Bot = Bot
-    { botConnection :: WS.Connection
-    , packetCount   :: PacketID
-    , botAgent      :: BotAgent
-    , botRoom       :: String
-    , botName       :: String
+    { botConnection :: WS.Connection -- ^ Websocket connection to heim.
+    , packetCount   :: PacketID -- ^ The packet counter
+    , botAgent      :: BotAgent -- ^ The Bot agent given from the server
+    , botRoom       :: String -- | The room the bot currently is in
+    , botName       :: String -- | Initial bot nick
     , startTime     :: UTCTime
     , botFun        :: BotFunctions
     , sideThreads   :: TVar [ThreadId]
@@ -64,9 +70,12 @@ data BotFunctions = BotFunctions {
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
+-- | The main bot call function. When this action ends, the bot is closed.
 bot   :: BotFunctions -> IO ()
 bot hs = runWriterT (do
+         tell "Starting up the bot"
          botInit hs
+         tell "Ending the bot"
          disconnect hs
          ) >>= (T.putStrLn . snd)
 
@@ -103,11 +112,12 @@ botMain o h c = execWriterT (do
                 counter <- io $ atomically $ newTVar 1
                 userVar <- io $ atomically $ newEmptyTMVar
                 threadVar <- io $ atomically $ newTVar []
-                startTime <- io $ getCurrentTime
-                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) (startTime) h threadVar
+                startTimes <- io $ getCurrentTime
+                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) (startTimes) h threadVar
                 runReaderT botLoop thisBot
                 )
 
+-- | Function for closing off the bot.
 disconnect :: BotFunctions -> Log ()
 disconnect hs = case dcHook hs of
                   Nothing -> return ()
@@ -123,14 +133,12 @@ tellLog text = do
                tell $ "[" `T.append` getTimeDiff curTime sT `T.append` "s] " `T.append` text `T.snoc` '\n'
                where getTimeDiff a b = T.pack $ show (diffUTCTime a b)
 
-testBot = bot (BotFunctions (\x -> return ()) Nothing)
+-- | Debug test bot
+testBot :: IO ()
+testBot = bot (BotFunctions (\x -> tell (T.pack $ show x) >> return ()) Nothing)
 
 --botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
 --botLoop botNick room closed botFunct conn = do
---        myAgent <- newEmptyMVar
---        started <- getPOSIXTime
---        let botState = BotState conn count myAgent room botNick closed (round started)
---
 --        _ <- forkIO $ catch ( forever (
 --          do
 --          msg <- WS.receiveData conn :: IO B.ByteString
