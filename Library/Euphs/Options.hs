@@ -28,7 +28,7 @@ defaults :: Opts
 defaults = Opts { heimHost   = "euphoria.io"
                 , heimPort   = 443
                 , useSSL     = True
-                , roomList   = "test"
+                , roomList   = "music"
                 , showHelp   = False
                 , logTarget  = ""
                 , botAccount = ""
