@@ -105,11 +105,21 @@ muevalFunction botState (SendEvent message)
   = case words (contentMsg message) of
       "!haskell" : _ -> case stripPrefix "!haskell" $ contentMsg message of
                           Nothing -> return ()
-                          Just x -> readProcess' "mueval" ["-m","Numeric","-l", "/home/viviff9/MuevalDef.hs",  "-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+                          Just x -> readProcess' "mueval" ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-S","-e", x ] [] >>= (\y -> sendPacket botState $ Send (concatMap format y) $ msgID message)
+      "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
+                          Nothing -> return ()
+                          Just x -> readProcess' "hoogle"
+                            ["search" ,"-d" ,
+                            "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
+                            "-n", "3", "-i", x] [] >>=
+                                (\y -> sendPacket botState $ Send y $ msgID message)
       "!hoogle"  : _ -> case stripPrefix "!hoogle" $ contentMsg message of
                           Nothing -> return ()
-                          Just x -> readProcess' "hoogle" ["search" , x] [] >>= (\y -> sendPacket botState $ Send (unlines $ take 3 $ lines y) $ msgID message)
-
+                          Just x -> readProcess' "hoogle"
+                            ["search" ,"-d" ,
+                            "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
+                            "-n", "3", x] [] >>=
+                                (\y -> sendPacket botState $ Send y $ msgID message)
       _ -> return  ()
 
 muevalFunction _ _ = return ()
