@@ -25,21 +25,16 @@ import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 import           System.IO                   (stdout, IOMode(..), Handle, openFile)
 import qualified Data.ByteString.Lazy        as B
-import qualified Data.ByteString.Internal    as BI
-import qualified Data.ByteString.Lazy.Char8  as BC
 import qualified Data.Text                   as T
 import qualified Data.Text.Lazy              as TL
 import qualified Data.Text.Lazy.Encoding     as T (decodeUtf8)
 import qualified Data.Text.IO                as T
 import           Data.Char                   (isSpace)
-import           Data.List
 import           Control.Exception           --(finally, catch, SomeException
 import           Control.Monad.Trans         (liftIO, MonadIO)
-import           Control.Monad.Writer.Strict (runWriterT, execWriterT, tell, WriterT)
 import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
 import           System.Environment          (getArgs)
 import           Control.Monad               (forever, when, void, guard)
-import           Data.Time.Clock.POSIX
 import           Data.Time.Clock             (UTCTime,getCurrentTime, diffUTCTime)
 import           Control.Concurrent.STM
 import           Control.Concurrent          (ThreadId, forkIO)
@@ -107,17 +102,20 @@ botConnect opts h han started = do
             fam  = S.addrFamily $ head is
         s <-  S.socket fam S.Stream S.defaultProtocol
         S.connect s addr
+        tellLogWithHandle han started "Connected to the socket"
         myStream <- if useSSL opts then
                         SSL.withOpenSSL $ do
                         ctx <- SSL.context
                         ssl <- SSL.connection ctx s
                         SSL.connect ssl
+                        tellLogWithHandle han started "Connected with SSL"
                         (i,o) <- Streams.sslToStreams ssl
                         WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
                     else
                         do
                         (i,o) <- Streams.socketToStreams s
                         WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
+        tellLogWithHandle han started "Websocket start"
         return $ WS.runClientWithStream myStream (heimHost opts) (roomPath $ roomList opts) WS.defaultConnectionOptions []
 
 botMain :: Opts -> BotFunctions -> Handle -> UTCTime -> WS.ClientApp Bot
@@ -140,7 +138,7 @@ disconnect hs = case dcHook $ botFun hs of
 botLoop :: Net ()
 botLoop = do
           forkBot botQueue
-          sendPacket $ Nick "Testing"
+          _ <- sendPacket $ Nick "Testing"
           a <- io $ getLine
           tellLog $ T.pack a
           closeConnection
@@ -214,6 +212,7 @@ botQueue = do
                 isReply (SendReply _ _) = True
                 isReply (NickReply _ _ _) = True
                 isReply x = False
+
 forkBot :: Net () -> Net ()
 forkBot act = do
           thisBot <- ask
