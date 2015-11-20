@@ -25,22 +25,24 @@ import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 import           System.IO                   (stdout, IOMode(..), Handle, openFile)
 import qualified Data.ByteString.Lazy        as B
+import qualified Data.ByteString.Internal    as BI
 import qualified Data.ByteString.Lazy.Char8  as BC
 import qualified Data.Text                   as T
+import qualified Data.Text.Lazy              as TL
+import qualified Data.Text.Lazy.Encoding     as T (decodeUtf8)
 import qualified Data.Text.IO                as T
-import qualified Data.Aeson                  as J
 import           Data.Char                   (isSpace)
 import           Data.List
 import           Control.Exception           --(finally, catch, SomeException
 import           Control.Monad.Trans         (liftIO, MonadIO)
 import           Control.Monad.Writer.Strict (runWriterT, execWriterT, tell, WriterT)
-import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
+import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
 import           System.Environment          (getArgs)
-import           Control.Monad
+import           Control.Monad               (forever, when, void, guard)
 import           Data.Time.Clock.POSIX
 import           Data.Time.Clock             (UTCTime,getCurrentTime, diffUTCTime)
 import           Control.Concurrent.STM
-import           Control.Concurrent          (ThreadId)
+import           Control.Concurrent          (ThreadId, forkIO)
 
 import           Euphs.Events
 import           Euphs.Commands
@@ -69,6 +71,7 @@ data Bot = Bot
     , botFun        :: BotFunctions
     , sideThreads   :: TVar [ThreadId]
     , logHandle     :: Handle
+    , evtQueue      :: TQueue EuphEvent
     }
 
 data BotFunctions = BotFunctions {
@@ -123,7 +126,8 @@ botMain o h han started c =
                 counter <- atomically $ newTVar 1
                 userVar <- atomically newEmptyTMVar
                 threadVar <- atomically $ newTVar []
-                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han
+                evtQ <- atomically $ newTQueue
+                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ
                 runReaderT botLoop thisBot
                 return thisBot
 
@@ -135,7 +139,7 @@ disconnect hs = case dcHook $ botFun hs of
 
 botLoop :: Net ()
 botLoop = do
-
+          forkBot botQueue
           sendPacket $ Nick "Testing"
           a <- io $ getLine
           tellLog $ T.pack a
@@ -193,9 +197,26 @@ testBot = bot (BotFunctions (\x -> void $ tellLog (T.pack $ show x)) Nothing)
 --                          {-return ()-}
 --                          {-)-}
 --
---
---
---
+botQueue :: Net ()
+botQueue = do
+           conn <- asks botConnection
+           evts <- asks evtQueue
+           forever $ do
+                msg <- io $ (WS.receiveData conn :: IO B.ByteString)
+                case decodePacket msg of
+                   Left stuff -> tellLog $ "Can't parse : " `T.append` (TL.toStrict $ T.decodeUtf8 msg) `T.append` (T.pack $ "\nReason: " ++ stuff)
+                   Right (PingEvent x _) -> sendPing x
+                   Right x -> io $ atomically $ writeTQueue evts x
+
+
+
+forkBot :: Net () -> Net ()
+forkBot act = do
+          thisBot <- ask
+          thisThreads <- asks sideThreads
+          thrID <- io $ forkIO $ runReaderT act thisBot
+          io $ atomically $ modifyTVar thisThreads (thrID : )
+
 getNextPacket :: Net Int
 getNextPacket = do
             counter <- asks packetCount
@@ -204,19 +225,36 @@ getNextPacket = do
                    modifyTVar counter (+1)
                    return a
 
-sendPacket :: EuphCommand -> Net ()
-sendPacket euphPacket =
-      do
+sendPing :: Integer -> Net ()
+sendPing x = do
+      tellLog $ "Sending ping " `T.append` (T.pack $ show x)
       seqNum <- getNextPacket
       conn <- asks botConnection
-      io $ WS.sendTextData conn $ J.encode (Command seqNum euphPacket)
+      evts <- asks evtQueue
+      io $ WS.sendTextData conn $ encodePacket $ Command seqNum $ Ping x
+
+sendPacket :: EuphCommand -> Net EuphEvent
+sendPacket euphPacket =
+      do
+      tellLog $ "Sending packet " `T.append` (T.pack $ show euphPacket)
+      seqNum <- getNextPacket
+      conn <- asks botConnection
+      evts <- asks evtQueue
+      io $ WS.sendTextData conn $ encodePacket $ Command seqNum euphPacket
+      io $ atomically $ do
+          evt <- readTQueue evts
+          guard $ matchIdReply seqNum evt
+          return evt
+
 
 -- | Function for closing the connection from inside the Net monad
 closeConnection :: Net ()
 closeConnection =
   do
   conn <- asks botConnection
+  hs <- asks botFunctions
   io $ WS.sendClose conn $ T.pack ""
+  io $ disconnect hs
 
 getBotAgent :: Net UserData
 getBotAgent = asks botAgent >>= (io . atomically .  readTMVar)

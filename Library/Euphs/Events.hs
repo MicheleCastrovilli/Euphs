@@ -4,18 +4,21 @@ module Euphs.Events where
 
 import qualified Data.Aeson              as J
 import qualified Data.Text               as T
+import qualified Data.ByteString.Lazy    as B
 import           Control.Monad
 import           Euphs.Types
+import           Euphs.Commands
 
 -- | The main Event structure, every JSON reply gets parsed into this structure, and then passed to the custom bot function.
 data EuphEvent =
         PingEvent     { pingTime  :: Integer
                       , nextTime  :: Integer
                       }
-      | WhoReply      { idResp    :: String
+      | WhoReply      { idReply   :: Int
                       , users     :: [UserData]
                       }
-      | LogReply      { messages  :: [MessageData] }
+      | LogReply      { idReply   :: Int
+                      , messages  :: [MessageData] }
       | SnapshotEvent { identity  :: String
                       , sessionID :: String
                       , version   :: String
@@ -23,11 +26,13 @@ data EuphEvent =
                       , messages  :: [MessageData]
                       }
       | SendEvent     { msgData   :: MessageData }
-      | SendReply     { msgData   :: MessageData }
+      | SendReply     { idReply   :: Int
+                      , msgData   :: MessageData }
       | NickEvent     { userData  :: UserData
                       , fromNick  :: String
                       }
-      | NickReply     { userData  :: UserData
+      | NickReply     { idReply   :: Int
+                      , userData  :: UserData
                       , fromNick  :: String
                       }
       | JoinEvent     { userData  :: UserData }
@@ -47,13 +52,15 @@ instance J.FromJSON EuphEvent where
           PingEvent     <$> ( v J..: "data" >>= (J..: "time"))
                         <*> ( v J..: "data" >>= (J..: "next"))
      "send-reply" ->
-          SendReply     <$> ( v J..: "data" )
+          SendReply     <$> (fmap read $ v J..: "id")
+                        <*> v J..: "data"
      "send-event" ->
           SendEvent     <$> ( v J..: "data" )
      "nick-reply" ->
-          NickReply     <$>  v J..: "data"
-                        <*> v J..: "from"
-                          -- (UserData <$> ( v J..: "data" >>= (J..: "id"))
+          NickReply     <$> (fmap read $ v J..: "id")
+                        <*> v J..: "data"
+                        <*> (v J..:? "from" J..!="")
+                          -- (UserData <$> ( v J..: i"data" >>= (J..: "id"))
                           --            <*> ( v J..: "data" >>= (J..: "to"))
                           --            <*> return ""
                           --            <*> return ""
@@ -69,14 +76,15 @@ instance J.FromJSON EuphEvent where
                            -- )
                         <*> v J..: "from"
      "who-reply" ->
-          WhoReply      <$> v J..: "id"
+          WhoReply      <$> (fmap read $ v J..: "id")
                         <*> (v J..: "data" >>= (J..: "listing"))
      "join-event" ->
           JoinEvent     <$> v J..: "data"
      "part-event" ->
           PartEvent     <$> v J..: "data"
      "log-reply" ->
-          LogReply      <$> v J..: "data"
+          LogReply      <$> (fmap read $ v J..: "id")
+                        <*> v J..: "data"
      "hello-event" ->
           HelloEvent <$> (v J..: "data" >>= (J..: "session"))
                      <*> (v J..: "data" >>= (J..: "room_is_private"))
@@ -89,3 +97,17 @@ instance J.FromJSON EuphEvent where
                         <*> (v J..: "data" >>= (J..: "log"))
      _ -> mzero
   parseJSON _ = mzero
+
+
+decodePacket :: B.ByteString -> Either String EuphEvent
+decodePacket = J.eitherDecode'
+
+encodePacket :: SentCommand -> B.ByteString
+encodePacket = J.encode
+
+matchIdReply :: Int -> EuphEvent -> Bool
+matchIdReply i (SendReply s _) = s == i
+matchIdReply i (NickReply s _ _) = s == i
+matchIdReply i (WhoReply s _) = s == i
+matchIdReply i (LogReply s _) = s == i
+matchIdReply _ _ = False

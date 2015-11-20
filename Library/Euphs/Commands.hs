@@ -17,9 +17,15 @@ data SentCommand =
     , commandData :: EuphCommand -- ^ Proper packet
     } deriving (Show)
 
+data AuthOption = AuthPasscode deriving (Eq, Show)
+
+instance J.ToJSON AuthOption where
+  toJSON AuthPasscode = "passcode"
+
 -- | Types of commands
 data EuphCommand =
-    PingReply     { timeReply    :: Integer } -- ^ Reply to ping event
+    Ping          { timeReply    :: Integer -- ^ Time of the ping replied to
+                  } -- ^ Reply to ping event
   | Who -- | Requests a list of sessions connected to the room
   | Log           { nMsg         :: Int -- ^ Number of messages to request
                   , beforeMsg    :: String  -- ^ ID from when to request
@@ -31,6 +37,9 @@ data EuphCommand =
                   } -- ^ Requests a new nick.
   | GetMessage    { idGet        :: MessageID -- ^ The Snowflake of the message to get
                   } --  ^ Fully gets a message
+  | Auth          { authType     :: AuthOption -- ^ Method of Authentication
+                  , passcode     :: String -- ^ Passcode authentication
+                  }
   deriving (Eq,Show)
 
 instance J.ToJSON SentCommand where
@@ -38,7 +47,7 @@ instance J.ToJSON SentCommand where
 
 -- | An internal function, to work with the JSON data
 inPair :: EuphCommand -> [(T.Text, J.Value)]
-inPair (PingReply time) =
+inPair (Ping time) =
   [
     ("type" , "ping-reply" ),
     ("data", J.object  [ "time" J..= time ])
@@ -78,4 +87,12 @@ inPair (GetMessage idGot) =
         ]
       )
     ]
-
+inPair (Auth t p) =
+    [
+      ("type", "auth"),
+      ("data", J.object [
+          "type" J..= t
+        , "passcode" J..= p
+        ]
+      )
+    ]
