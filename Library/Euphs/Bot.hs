@@ -201,15 +201,19 @@ botQueue :: Net ()
 botQueue = do
            conn <- asks botConnection
            evts <- asks evtQueue
+           fun  <- asks botFun
            forever $ do
                 msg <- io $ (WS.receiveData conn :: IO B.ByteString)
                 case decodePacket msg of
                    Left stuff -> tellLog $ "Can't parse : " `T.append` (TL.toStrict $ T.decodeUtf8 msg) `T.append` (T.pack $ "\nReason: " ++ stuff)
                    Right (PingEvent x _) -> sendPing x
-                   Right x -> io $ atomically $ writeTQueue evts x
-
-
-
+                   Right x | isReply x -> io $ atomically $ writeTQueue evts x
+                           | otherwise -> eventsHook fun x
+          where isReply (WhoReply _ _) = True
+                isReply (LogReply _ _) = True
+                isReply (SendReply _ _) = True
+                isReply (NickReply _ _ _) = True
+                isReply x = False
 forkBot :: Net () -> Net ()
 forkBot act = do
           thisBot <- ask
@@ -241,10 +245,12 @@ sendPacket euphPacket =
       conn <- asks botConnection
       evts <- asks evtQueue
       io $ WS.sendTextData conn $ encodePacket $ Command seqNum euphPacket
-      io $ atomically $ do
+      ev <- io $ atomically $ do
           evt <- readTQueue evts
           guard $ matchIdReply seqNum evt
           return evt
+      tellLog $ "Recieved packet " `T.append` (T.pack $ show ev)
+      return ev
 
 
 -- | Function for closing the connection from inside the Net monad
@@ -252,9 +258,7 @@ closeConnection :: Net ()
 closeConnection =
   do
   conn <- asks botConnection
-  hs <- asks botFunctions
   io $ WS.sendClose conn $ T.pack ""
-  io $ disconnect hs
 
 getBotAgent :: Net UserData
 getBotAgent = asks botAgent >>= (io . atomically .  readTMVar)
