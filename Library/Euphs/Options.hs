@@ -13,7 +13,7 @@ import System.Console.GetOpt
 data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  , heimPort   :: Int       -- ^ The port to connect to
                  , useSSL     :: Bool      -- ^ Whether to use wss or ws
-                 , roomList   :: String    -- ^ A list of initial rooms separated by whitespace
+                 , roomList   :: String    -- ^ A list of initial rooms separated by whitespace in the format of <room name>[-<pw>]
                  , showHelp   :: Bool      -- ^ Print help on startup
                  , logTarget  :: FilePath  -- ^ The log file to write to.
                                            -- Fall back to 'stdout' when
@@ -28,7 +28,7 @@ defaults :: Opts
 defaults = Opts { heimHost   = "euphoria.io"
                 , heimPort   = 443
                 , useSSL     = True
-                , roomList   = "music"
+                , roomList   = "test"
                 , showHelp   = False
                 , logTarget  = ""
                 , botAccount = ""

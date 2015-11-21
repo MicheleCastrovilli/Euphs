@@ -13,31 +13,42 @@ module Euphs.Bot (
   , bot
   , closeConnection
   , disconnect
+  , emptyBot
+  , getBotAgent
 ) where
 
 import qualified Network.WebSockets          as WS
 import qualified Network.WebSockets.Stream   as WSS
 import qualified Network.Socket              as S
+
 import qualified OpenSSL                     as SSL
 import qualified OpenSSL.Session             as SSL
 import qualified System.IO.Streams.SSL       as Streams
 import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
-import           System.IO                   (stdout, IOMode(..), Handle, openFile)
+
+import           System.IO                   (stdout, IOMode(..), Handle, openFile, hClose)
+import           System.Environment          (getArgs)
+import           System.Posix.Signals        (keyboardSignal, installHandler, Handler(Catch))
+
 import qualified Data.ByteString.Lazy        as B
+--import qualified Data.ByteString.Lazy.Char8  as BC
+
 import qualified Data.Text                   as T
 import qualified Data.Text.Lazy              as TL
 import qualified Data.Text.Lazy.Encoding     as T (decodeUtf8)
 import qualified Data.Text.IO                as T
-import           Data.Char                   (isSpace)
-import           Control.Exception           --(finally, catch, SomeException
+
+import           Data.Time.Clock             as Time (UTCTime,getCurrentTime, diffUTCTime)
+
+import qualified Data.List                   as L
+import           Data.Maybe                  (fromMaybe)
+
 import           Control.Monad.Trans         (liftIO, MonadIO)
 import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
-import           System.Environment          (getArgs)
 import           Control.Monad               (forever, when, void, guard)
-import           Data.Time.Clock             (UTCTime,getCurrentTime, diffUTCTime)
 import           Control.Concurrent.STM
-import           Control.Concurrent          (ThreadId, forkIO)
+import           Control.Concurrent          (ThreadId, forkIO, myThreadId)
 
 import           Euphs.Events
 import           Euphs.Commands
@@ -52,7 +63,7 @@ roomPath room = "/room/" ++ room ++ "/ws"
 type PacketID = TVar Int
 -- | The mutable bot agent
 type BotAgent = TMVar UserData
-
+-- | The monad transformer stack, for handling all the bot events
 type Net = ReaderT Bot IO
 
 -- | The main Bot data structure.
@@ -60,18 +71,22 @@ data Bot = Bot
     { botConnection :: WS.Connection -- ^ Websocket connection to heim.
     , packetCount   :: PacketID -- ^ The packet counter
     , botAgent      :: BotAgent -- ^ The Bot agent given from the server
-    , botRoom       :: String -- | The room the bot currently is in
-    , botName       :: String -- | Initial bot nick
-    , startTime     :: UTCTime
-    , botFun        :: BotFunctions
-    , sideThreads   :: TVar [ThreadId]
-    , logHandle     :: Handle
-    , evtQueue      :: TQueue EuphEvent
+    , botRoom       :: String -- ^ The room the bot currently is in.
+    , botName       :: String -- ^ Initial bot nick
+    , startTime     :: UTCTime -- ^ Time at which the bot was started
+    , botFun        :: BotFunctions -- ^ Custom bot functions
+    , sideThreads   :: TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
+    , logHandle     :: Handle -- ^ Logging handle
+    , evtQueue      :: TQueue EuphEvent -- ^ Queue of reply events
+    , roomPW        :: Maybe String -- ^ Room password
     }
 
+-- | Custom Bot functions
 data BotFunctions = BotFunctions {
-    eventsHook :: EuphEvent -> Net (),
-    dcHook :: Maybe (IO ())
+    eventsHook :: EuphEvent -> Net () -- ^ Main event loop. Every event not handled by the bot, calls this function.
+  , dcHook :: Maybe (IO ()) -- ^ Special actions to run in a disconnect, for cleanup.
+  , helpShortHook :: Maybe (Net String) -- ^ A short !help description
+  , helpLongHook :: Maybe (Net String) -- ^ A long !help <botName> description
 }
 
 io :: MonadIO m => IO a -> m a
@@ -87,16 +102,17 @@ bot hs = do
          tellLogWithHandle han started "Starting up the bot"
          botStr <- botInit opts hs han started
          tellLogWithHandle han started "Ending the bot"
+         hClose han
          disconnect botStr
 
 botInit :: Opts -> BotFunctions -> Handle -> UTCTime -> IO Bot
 botInit opts hs h l = do
-             client <- botConnect opts hs h l
+             client <- botConnect opts h l
              botStr <- client $ botMain opts hs h l
              return botStr
 
-botConnect :: Opts -> BotFunctions -> Handle -> UTCTime -> IO (WS.ClientApp Bot -> IO Bot)
-botConnect opts h han started = do
+botConnect :: Opts -> Handle -> UTCTime -> IO (WS.ClientApp Bot -> IO Bot)
+botConnect opts han started = do
         is <- S.getAddrInfo Nothing (Just $ heimHost opts) (Just $ show $ heimPort opts)
         let addr = S.addrAddress $ head is
             fam  = S.addrFamily $ head is
@@ -116,7 +132,7 @@ botConnect opts h han started = do
                         (i,o) <- Streams.socketToStreams s
                         WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
         tellLogWithHandle han started "Websocket start"
-        return $ WS.runClientWithStream myStream (heimHost opts) (roomPath $ roomList opts) WS.defaultConnectionOptions []
+        return $ WS.runClientWithStream myStream (heimHost opts) (roomPath $ takeWhile (/= '-') $ roomList opts) WS.defaultConnectionOptions []
 
 botMain :: Opts -> BotFunctions -> Handle -> UTCTime -> WS.ClientApp Bot
 botMain o h han started c =
@@ -125,7 +141,9 @@ botMain o h han started c =
                 userVar <- atomically newEmptyTMVar
                 threadVar <- atomically $ newTVar []
                 evtQ <- atomically $ newTQueue
-                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ
+                let pw = drop 1 $ L.dropWhile (/= '-') $ roomList o
+                let maybePw = if null pw then Nothing else Just pw
+                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ maybePw
                 runReaderT botLoop thisBot
                 return thisBot
 
@@ -137,10 +155,18 @@ disconnect hs = case dcHook $ botFun hs of
 
 botLoop :: Net ()
 botLoop = do
+          closing <- io $ atomically $ newTChan
           forkBot botQueue
-          _ <- sendPacket $ Nick "Testing"
-          a <- io $ getLine
-          tellLog $ T.pack a
+          bname <- asks botName
+          pw <- asks roomPW
+          case pw of
+            Nothing -> return()
+            Just p -> do
+                      a <- sendPacket (Auth AuthPasscode p)
+                      guard $ success a
+          _ <- sendPacket $ Nick bname
+          _ <- io $ installHandler keyboardSignal (Catch $ atomically $ writeTChan closing ()) Nothing
+          io $ atomically $ readTChan closing
           closeConnection
           return ()
 
@@ -157,9 +183,9 @@ tellLogWithHandle han sT text = do
     where getTimeDiff a b = T.pack $ show (diffUTCTime a b)
 
 
--- | Debug test bot
-testBot :: IO ()
-testBot = bot (BotFunctions (\x -> void $ tellLog (T.pack $ show x)) Nothing)
+-- | Empty bot
+emptyBot :: BotFunctions
+emptyBot = BotFunctions (\_ -> return ()) Nothing Nothing Nothing
 
 --botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
 --botLoop botNick room closed botFunct conn = do
@@ -198,27 +224,47 @@ testBot = bot (BotFunctions (\x -> void $ tellLog (T.pack $ show x)) Nothing)
 botQueue :: Net ()
 botQueue = do
            conn <- asks botConnection
-           evts <- asks evtQueue
+           thisName <- asks botName
+           replies <- asks evtQueue
            fun  <- asks botFun
            forever $ do
-                msg <- io $ (WS.receiveData conn :: IO B.ByteString)
-                case decodePacket msg of
-                   Left stuff -> tellLog $ "Can't parse : " `T.append` (TL.toStrict $ T.decodeUtf8 msg) `T.append` (T.pack $ "\nReason: " ++ stuff)
-                   Right (PingEvent x _) -> sendPing x
-                   Right x | isReply x -> io $ atomically $ writeTQueue evts x
-                           | otherwise -> eventsHook fun x
-          where isReply (WhoReply _ _) = True
-                isReply (LogReply _ _) = True
-                isReply (SendReply _ _) = True
-                isReply (NickReply _ _ _) = True
-                isReply x = False
+                  msg <- io $ (WS.receiveData conn :: IO B.ByteString)
+                  case decodePacket msg of
+                      Left stuff -> tellLog $ "Can't parse : " `T.append` (TL.toStrict $ T.decodeUtf8 msg) `T.append` (T.pack $ "\nReason: " ++ stuff)
+                      Right event -> forkBot $ do
+                                     case event of
+                                       PingEvent x _ -> sendPing x
+                                       p@(SendEvent m) -> case words $ contentMsg m of
+                                                            "!ping" : x : _ -> when (x == "@" ++ thisName) (sendPong m)
+                                                            "!ping" : [] -> sendPong m
+                                                            "!uptime" : x : _ -> when (x == "@" ++ thisName)
+                                                                $ getUptimeReply >>= \reply -> void $ sendPacket $ Send reply $ msgID m
+                                                            "!help" : [] -> sendMaybeHelp m $ helpShortHook fun
+                                                            "!help" : x : _  -> when (x == "@" ++ thisName) $ sendMaybeHelp m $ helpLongHook fun
+                                                            _ -> eventsHook fun p
+                                       HelloEvent bs _ _ -> do
+                                                            ag <- asks botAgent
+                                                            io $ atomically $ putTMVar ag bs
+                                       x | isReply x -> io $ atomically $ writeTQueue replies x
+                                         | otherwise -> eventsHook fun x
+           where isReply (WhoReply _ _) = True
+                 isReply (LogReply _ _) = True
+                 isReply (SendReply _ _) = True
+                 isReply (NickReply _ _ _) = True
+                 isReply (AuthReply _ _ _) = True
+                 isReply _ = False
+                 sendPong x = void $ sendPacket $ flip Send (msgID x) "Pong!"
+                 sendMaybeHelp m = fromMaybe (return ()) . fmap (\x -> x >>= (void . sendPacket . flip Send (msgID m)))
 
 forkBot :: Net () -> Net ()
 forkBot act = do
           thisBot <- ask
           thisThreads <- asks sideThreads
-          thrID <- io $ forkIO $ runReaderT act thisBot
-          io $ atomically $ modifyTVar thisThreads (thrID : )
+          void $ io $ forkIO $ do
+              thrID <- myThreadId
+              io $ atomically $ modifyTVar thisThreads (thrID : )
+              runReaderT act thisBot
+              io $ atomically $ modifyTVar thisThreads (filter (/= thrID))
 
 getNextPacket :: Net Int
 getNextPacket = do
@@ -233,14 +279,13 @@ sendPing x = do
       tellLog $ "Sending ping " `T.append` (T.pack $ show x)
       seqNum <- getNextPacket
       conn <- asks botConnection
-      evts <- asks evtQueue
       io $ WS.sendTextData conn $ encodePacket $ Command seqNum $ Ping x
 
 sendPacket :: EuphCommand -> Net EuphEvent
 sendPacket euphPacket =
       do
-      tellLog $ "Sending packet " `T.append` (T.pack $ show euphPacket)
       seqNum <- getNextPacket
+      tellLog $ "Sending packet " `T.append` (T.pack $ show euphPacket) `T.append` " with seqnum : " `T.append` (T.pack $ show seqNum)
       conn <- asks botConnection
       evts <- asks evtQueue
       io $ WS.sendTextData conn $ encodePacket $ Command seqNum euphPacket
@@ -251,7 +296,6 @@ sendPacket euphPacket =
       tellLog $ "Recieved packet " `T.append` (T.pack $ show ev)
       return ev
 
-
 -- | Function for closing the connection from inside the Net monad
 closeConnection :: Net ()
 closeConnection =
@@ -259,20 +303,19 @@ closeConnection =
   conn <- asks botConnection
   io $ WS.sendClose conn $ T.pack ""
 
+-- | An easier way to read the current bot agent
 getBotAgent :: Net UserData
 getBotAgent = asks botAgent >>= (io . atomically .  readTMVar)
 
 getUptime :: Net String
 getUptime = do
     sT <- asks startTime
-    eT <- io $ getCurrentTime
-    let myTime = floor $ diffUTCTime eT sT :: Integer
-        hours =  div myTime 3600
-        minutes = div (myTime-hours*3600) 60
-        seconds = (myTime - hours*3600 - minutes*60)
-    return $ if myTime > 0 then
-          show hours   ++ "h " ++
-          show minutes ++ "m " ++
-          show seconds ++ "s."
-        else
-          "UhOh, negative time?"
+    eT <- io $ Time.getCurrentTime
+    let myTime = round $ Time.diffUTCTime eT sT :: Integer
+    let startedString = show eT
+    let (y, y') = L.mapAccumR quotRem myTime [24,60,60]
+    let res = L.intercalate " " $ map (\(x, z) -> show z ++ x) $ dropWhile ((== 0) . snd) $  zip ["d", "h", "m", "s"] $ y:y'
+    return $ startedString ++ " (" ++ res ++ ")"
+
+getUptimeReply :: Net String
+getUptimeReply = getUptime >>=  (return . (++) "/me has been up since " . flip (++) ".")

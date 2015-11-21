@@ -11,39 +11,50 @@ import           Euphs.Commands
 
 -- | The main Event structure, every JSON reply gets parsed into this structure, and then passed to the custom bot function.
 data EuphEvent =
-        PingEvent     { pingTime  :: Integer
-                      , nextTime  :: Integer
+        PingEvent     { pingTime  :: Integer -- ^ The sent time
+                      , nextTime  :: Integer -- ^ Next time a ping will be sent
                       }
-      | WhoReply      { idReply   :: Int
-                      , users     :: [UserData]
+      | WhoReply      { idReply   :: Int -- ^ ID based on the command sent
+                      , users     :: [UserData] -- ^ List of sessions connected
                       }
       | LogReply      { idReply   :: Int
-                      , messages  :: [MessageData] }
-      | SnapshotEvent { identity  :: String
-                      , sessionID :: String
-                      , version   :: String
-                      , users     :: [UserData]
-                      , messages  :: [MessageData]
+                      , messages  :: [MessageData] -- ^ List of messages requested
                       }
-      | SendEvent     { msgData   :: MessageData }
+      | SnapshotEvent { identity  :: String -- ^  Id of the agent logged
+                      , sessionID :: String -- ^ Global ID of this session
+                      , version   :: String -- ^ Server's version identifier
+                      , users     :: [UserData] -- ^ List of all other sessions , excluding self
+                      , messages  :: [MessageData] -- ^ Up to previous 100 messages in the room
+                      }
+      | SendEvent     { msgData   :: MessageData  -- ^ Messsage sent from an user
+                      }
       | SendReply     { idReply   :: Int
-                      , msgData   :: MessageData }
-      | NickEvent     { userData  :: UserData
-                      , fromNick  :: String
+                      , msgData   :: MessageData -- ^ Message sent from the bot
+                      }
+      | NickEvent     { userData  :: UserData -- ^ New user agent
+                      , fromNick  :: String -- ^ Previous nick
                       }
       | NickReply     { idReply   :: Int
-                      , userData  :: UserData
-                      , fromNick  :: String
+                      , userData  :: UserData -- ^ New bot agent
+                      , fromNick  :: String -- ^ Previous nick
                       }
-      | JoinEvent     { userData  :: UserData }
-      | PartEvent     { userData  :: UserData }
-      | HelloEvent    { userData  :: UserData
-                      , privateRoom :: Bool
-                      , version   :: String
+      | JoinEvent     { userData  :: UserData  -- ^ Session that joined the room
+                      }
+      | PartEvent     { userData  :: UserData  -- ^ Session that left the room
+                      }
+      | HelloEvent    { userData  :: UserData  -- ^ Self session
+                      , privateRoom :: Bool -- ^ Indicating whether a room is private or not.
+                      , version   :: String -- ^ Version id of the server
+                      }
+      | AuthReply     { idReply   :: Int
+                      , success   :: Bool -- ^ Whether the authentication was successful
+                      , reason    :: String -- ^ Reason of denied auth
+                      }
+      | BounceEvent   { reason    :: String -- ^ Reason of bounce event
                       }
       deriving (Show)
 
-
+-- | JSON parsing instance for Heim events
 instance J.FromJSON EuphEvent where
   parseJSON (J.Object v) = do
     msgType <- v J..: "type"
@@ -59,7 +70,7 @@ instance J.FromJSON EuphEvent where
      "nick-reply" ->
           NickReply     <$> (fmap read $ v J..: "id")
                         <*> v J..: "data"
-                        <*> (v J..:? "from" J..!="")
+                        <*> (v J..: "data" >>= (\x -> x J..:? "from" J..!=""))
                           -- (UserData <$> ( v J..: i"data" >>= (J..: "id"))
                           --            <*> ( v J..: "data" >>= (J..: "to"))
                           --            <*> return ""
@@ -74,7 +85,7 @@ instance J.FromJSON EuphEvent where
                            --           <*> return ""
                            --           <*> ( v J..: "data" >>= (J..: "session_id"))
                            -- )
-                        <*> v J..: "from"
+                        <*> (v J..: "data" >>= (J..: "from"))
      "who-reply" ->
           WhoReply      <$> (fmap read $ v J..: "id")
                         <*> (v J..: "data" >>= (J..: "listing"))
@@ -95,19 +106,28 @@ instance J.FromJSON EuphEvent where
                         <*> (v J..: "data" >>= (J..: "version"))
                         <*> (v J..: "data" >>= (J..: "listing"))
                         <*> (v J..: "data" >>= (J..: "log"))
+     "auth-reply" ->
+          AuthReply <$> (fmap read $ v J..: "id")
+                    <*> (v J..: "data" >>= (J..: "success"))
+                    <*> (v J..: "data" >>= (\x -> x J..:? "reason" J..!= ""))
+     "bounce-event" ->
+          BounceEvent <$> (v J..: "data" >>= (J..: "reason"))
      _ -> mzero
   parseJSON _ = mzero
 
-
+-- | Function to decode a network packet to an Euphorian event
 decodePacket :: B.ByteString -> Either String EuphEvent
 decodePacket = J.eitherDecode'
 
+-- | Function to encode an Euphorian command to a network packet
 encodePacket :: SentCommand -> B.ByteString
 encodePacket = J.encode
 
+-- | Function to match a Reply with the command
 matchIdReply :: Int -> EuphEvent -> Bool
 matchIdReply i (SendReply s _) = s == i
 matchIdReply i (NickReply s _ _) = s == i
 matchIdReply i (WhoReply s _) = s == i
 matchIdReply i (LogReply s _) = s == i
+matchIdReply i (AuthReply s _ _) = s == i
 matchIdReply _ _ = False

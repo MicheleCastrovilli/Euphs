@@ -3,6 +3,7 @@
 module Euphs.Commands (
     SentCommand(..)
  ,  EuphCommand(..)
+ ,  AuthOption(..)
 )where
 
 import qualified Data.Aeson                 as J
@@ -17,6 +18,7 @@ data SentCommand =
     , commandData :: EuphCommand -- ^ Proper packet
     } deriving (Show)
 
+-- | Option type for determining the Authentication Type
 data AuthOption = AuthPasscode deriving (Eq, Show)
 
 instance J.ToJSON AuthOption where
