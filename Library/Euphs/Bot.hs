@@ -15,6 +15,8 @@ module Euphs.Bot (
   , disconnect
   , emptyBot
   , getBotAgent
+  , sendPacket
+  , getBotConfig
 ) where
 
 import qualified Network.WebSockets          as WS
@@ -32,16 +34,14 @@ import           System.Environment          (getArgs)
 import           System.Posix.Signals        (keyboardSignal, installHandler, Handler(Catch))
 
 import qualified Data.ByteString.Lazy        as B
---import qualified Data.ByteString.Lazy.Char8  as BC
-
 import qualified Data.Text                   as T
 import qualified Data.Text.Lazy              as TL
 import qualified Data.Text.Lazy.Encoding     as T (decodeUtf8)
 import qualified Data.Text.IO                as T
 
 import           Data.Time.Clock             as Time (UTCTime,getCurrentTime, diffUTCTime)
-
 import qualified Data.List                   as L
+import qualified Data.Yaml                   as Y
 import           Data.Maybe                  (fromMaybe)
 
 import           Control.Monad.Trans         (liftIO, MonadIO)
@@ -49,6 +49,7 @@ import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
 import           Control.Monad               (forever, when, void, guard)
 import           Control.Concurrent.STM
 import           Control.Concurrent          (ThreadId, forkIO, myThreadId)
+import           Control.Exception           (catch, SomeException)
 
 import           Euphs.Events
 import           Euphs.Commands
@@ -79,6 +80,7 @@ data Bot = Bot
     , logHandle     :: Handle -- ^ Logging handle
     , evtQueue      :: TQueue EuphEvent -- ^ Queue of reply events
     , roomPW        :: Maybe String -- ^ Room password
+    , closeVar      :: TChan ()
     }
 
 -- | Custom Bot functions
@@ -141,10 +143,12 @@ botMain o h han started c =
                 userVar <- atomically newEmptyTMVar
                 threadVar <- atomically $ newTVar []
                 evtQ <- atomically $ newTQueue
+                closing <- io $ atomically $ newTChan
                 let pw = drop 1 $ L.dropWhile (/= '-') $ roomList o
                 let maybePw = if null pw then Nothing else Just pw
-                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ maybePw
-                runReaderT botLoop thisBot
+                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ maybePw closing
+                catch (runReaderT botLoop thisBot) (\x -> (tellLogWithHandle han started $ T.pack $ show (x :: SomeException)) >>
+                                                          (atomically $ writeTChan closing ()))
                 return thisBot
 
 -- | Function for closing off the bot.
@@ -155,7 +159,7 @@ disconnect hs = case dcHook $ botFun hs of
 
 botLoop :: Net ()
 botLoop = do
-          closing <- io $ atomically $ newTChan
+          closing <- asks closeVar
           forkBot botQueue
           bname <- asks botName
           pw <- asks roomPW
@@ -187,40 +191,6 @@ tellLogWithHandle han sT text = do
 emptyBot :: BotFunctions
 emptyBot = BotFunctions (\_ -> return ()) Nothing Nothing Nothing
 
---botLoop :: BotName -> RoomName -> MVar Bool -> BotFunction -> WS.ClientApp ()
---botLoop botNick room closed botFunct conn = do
---        _ <- forkIO $ catch ( forever (
---          do
---          msg <- WS.receiveData conn :: IO B.ByteString
---          --putStrLn $ BC.unpack msg
---          --liftIO $ putStrLn $ maybe  ("Can't parse this : " ++ BC.unpack msg) (show) evt
---          case evt of
---            Just (PingEvent x _) -> sendPacket botState (PingReply x)
---            Just (NickReply _ user)   ->  putMVar myAgent user
---            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!uptime @" ++ botNick)  -> Just r) _ _)) ->
---                 getPOSIXTime >>= (\x -> sendPacket botState (Send ("Been up  for " ++ getUptime botState (round x)) mesgID))
---            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix ("!ping @" ++ botNick) -> Just _) _ _)) -> sendPacket botState (Send "Pong!" mesgID)
---            Just (SendEvent (MessageData _ mesgID _ _ (stripPrefix "!ping" -> Just r) _ _)) -> when (null $ filter (not .isSpace) r) $ sendPacket botState (Send "Pong!" mesgID)
---            Just x                    ->  void $ forkIO $ botFunct botState x
---            Nothing                   ->  putStrLn $ "Can't parse this: " ++ BC.unpack msg
---          )) (\ (SomeException _) -> closeConnection botState True )
---
---        putStrLn $ "Connected to Euphoria! With nick: " ++ botNick ++ " and in the room: " ++ botRoom botState
---
---        let loop x = (unless x $ takeMVar closed >>= loop) in takeMVar closed >>= loop
---        void $ threadDelay 1000000
---        {-forkIO $ forever (-}
---            {-do-}
---            {-a <- timeout 1000000 $ readChan timeoutChan-}
---            {-t <- getPOSIXTime-}
---            {-case a of -}
---            {-Nothing -> closeConnection botState-}
---            {-Just timed -> do-}
---                          {-putStrLn $ "PONG! " ++ ( show ( fromInteger timed - round t))-}
---                          {-threadDelay (1000000*(fromInteger timed - round t))-}
---                          {-return ()-}
---                          {-)-}
---
 botQueue :: Net ()
 botQueue = do
            conn <- asks botConnection
@@ -301,7 +271,9 @@ closeConnection :: Net ()
 closeConnection =
   do
   conn <- asks botConnection
+  closing <- asks closeVar
   io $ WS.sendClose conn $ T.pack ""
+  io $ atomically $ writeTChan closing ()
 
 -- | An easier way to read the current bot agent
 getBotAgent :: Net UserData
@@ -319,3 +291,10 @@ getUptime = do
 
 getUptimeReply :: Net String
 getUptimeReply = getUptime >>=  (return . (++) "/me has been up since " . flip (++) ".")
+
+getBotConfig :: (Y.FromJSON a) => Opts -> IO (Maybe a)
+getBotConfig o =
+    if null $ config o then
+      return Nothing
+    else
+      Y.decodeFile $ config o
