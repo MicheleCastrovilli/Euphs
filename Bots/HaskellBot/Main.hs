@@ -21,7 +21,6 @@ import qualified Control.Exception as C
 import           Data.List
 import           Control.Monad.Trans  (liftIO, MonadIO)
 import           Control.Monad.Reader (asks)
---import           YTBot                (getYtFun, ytFunction, reduceCommas,noPlay,tagFunction, getTagFunction)
 
 io :: (MonadIO m) => IO a -> m a
 io = liftIO
@@ -34,37 +33,6 @@ myFun (SendEvent m) = case contentMsg m of
                         "!testing" -> void $ sendPacket $ Send "Boop" $ msgID m
                         _ -> return ()
 myFun _ = return ()
---main :: IO ()
---main = do
---       args <- getArgs
---       if length args < 2 then
---        putStrLn $ "Usage: ./EuPhBot <function> <function param>\n\
---          \Current functions include : \n\
---          \E - <room argument> Starts HeliumDJBot in the room specified\n\
---          \C - <room argument> Starts  CounterBot in the room specified\
---          \F - <room argument> Starts  FortuneBot in the room specified\n\
---          \M - <room argument> Starts  HaskellBot in the room specified\n\
---          \T - <room argument> Starts  TestTagBot in the room specified\n"
---       else if head args == "E"  then
---            do
---            ytFun <- getYtFun "AIzaSyA0x4DFVPaFr8glEQvd5nylwThPrDUD4Yc" (if length args >= 3 then (args !! 2) else "False") (args !! 1)
---            _ <- if length args >= 4 then void $ forkIO (euphoriaBot "♪|HeliumDJBot" (args !! 3) $ ytFunction (ytFun {noPlay = True})) else return ()
---            euphoriaBot "♪|HeliumDJBot" (args !! 1) $ ytFunction ytFun
---        else if head args == "C" then
---            do
---            a <- newMVar True
---            b <- newMVar 0
---            euphoriaBot "CounterBot" (args !! 1) $ countFunction $ CountState a b
---        else if head args == "F" then
---          euphoriaBot "FortuneBot" (args !! 1) fortuneFunction
---        else if head args == "M" then
---          euphoriaBot "HaskellBot" (args !! 1) muevalFunction
---        else if head args == "T" then
---          getTagFunction >>= (euphoriaBot "TestTagBot" (args !! 1) . tagFunction)
---        else if head args == "Talk" then
---          newChan >>= ( euphoriaBot "ViviBot" (args !! 1) . talkBasicFun)
---        else
---          putStrLn "Use help"
 
 --fortuneFunction :: BotFunction
 --fortuneFunction botState (SendEvent message)

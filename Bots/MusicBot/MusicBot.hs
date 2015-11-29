@@ -30,6 +30,16 @@ import           Text.Regex.Base
 import           Text.Regex.TDFA
 import qualified Data.Foldable as F
 
+data MConfig {
+    apiKey :: String
+  , stopped :: Bool
+}
+
+instance J.FromJSON MConfig where
+    parseJSON (J.Object v) = do
+      MConfig <$> v J..: "yt_api_key"
+              <*> v J..: "stopped"
+
 data YTState = YTState {
               queue      :: MVar YTQueue,
               skip       :: MVar Bool,
@@ -143,22 +153,6 @@ ytFunction _ _ _ = return ()
 addToBack :: YTQueueItem -> SQ.Seq YTQueueItem -> SQ.Seq YTQueueItem
 addToBack yt sq = if length sq > sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
 
-instance J.FromJSON YTMetadata where
-  parseJSON (J.Object v) = do
-    tmp <-  safeHead <$> v J..: "items"
-    case tmp of
-      Nothing -> mzero
-      Just ytl -> do
-                  snippet <- ytl J..: "snippet"
-                  (YTMetadata <$> ( ytl J..: "id" )
-                             <*> ( snippet J..: "title" )
-                             <*> ( snippet J..: "thumbnails" >>= (J..: "default") >>= (J..: "url"))
-                             <*> ( parseISO8601 <$> ( ytl J..: "contentDetails" >>= (J..: "duration")))
-                             <*> ( ytl J..: "contentDetails" >>= (J..: "duration"))
-                             <*> ( ytl J..: "status" >>= (J..: "embeddable"))
-                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
-                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return []) >>= (return . balanceAllowed))
-  parseJSON _ = mzero
 
 filterLinks :: [String] -> [YTRequest]
 filterLinks = mapMaybe getYtReq

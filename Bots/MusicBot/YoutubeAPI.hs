@@ -1,9 +1,14 @@
 module YoutubeAPI where
 
-
 type YoutubeID = String
 type YTTime = Integer
 type YTRequest = (YoutubeID, YTTime, YTTime)
+
+data YoutubeRequest = YoutubeRequest {
+    youtubeID :: YoutubeID
+  , startTime :: Maybe YTTime
+  , endTime   :: Maybe YTTime
+}
 
 data YTMetadata = YTMetadata {
     ytID :: String
@@ -24,9 +29,12 @@ apiToken apiKeyStr = "&key=" ++ apiKeyStr
 
 getYtReq :: String -> Maybe YTRequest
 getYtReq y = do
-             let m1 = "youtube.com/watch\\?v=([A-Za-z0-9_\\-]{9,})" :: String
-             let m2 = "youtu.be/([A-Za-z0-9_\\-]{9,})" :: String
-             let t1 c = "(&|\\?)"++ c ++"=([0-9]+h)?([0-9]+m)?([0-9]+s?)?" :: String
+             let mYT = "youtube.com/watch"
+             let mVid = param ++ "v=([A-Za-z0-9_\\-]{9,})" :: String
+             let mYTS = "youtu.be/([A-Za-z0-9_\\-]{9,})" :: String
+             let param = "(&|\\?)"
+             let t1 c = param ++ c ++"=([0-9]+h)?([0-9]+m)?([0-9]+s?)?" :: String
+
              (before, _, after, groups)  <-  y =~~ m1 <|> y =~~ m2 :: Maybe (String, String, String, [String])
              let startTime = maybe 0 parseTime (after =~~  t1 "t"  :: Maybe (String, String, String, [String]))
              let endTime   = maybe (-1) parseTime (after =~~  t1 "te" :: Maybe (String, String, String, [String]))
@@ -70,3 +78,21 @@ balanceAllowed yt | not $ null $ restricted yt = let restOrd = sort (restricted 
                   | otherwise = yt {
                       allowed = S.toAscList countries
                     }
+
+
+instance J.FromJSON YTMetadata where
+  parseJSON (J.Object v) = do
+    tmp <-  safeHead <$> v J..: "items"
+    case tmp of
+      Nothing -> mzero
+      Just ytl -> do
+                  snippet <- ytl J..: "snippet"
+                  (YTMetadata <$> ( ytl J..: "id" )
+                             <*> ( snippet J..: "title" )
+                             <*> ( snippet J..: "thumbnails" >>= (J..: "default") >>= (J..: "url"))
+                             <*> ( parseISO8601 <$> ( ytl J..: "contentDetails" >>= (J..: "duration")))
+                             <*> ( ytl J..: "contentDetails" >>= (J..: "duration"))
+                             <*> ( ytl J..: "status" >>= (J..: "embeddable"))
+                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
+                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return []) >>= (return . balanceAllowed))
+  parseJSON _ = mzero

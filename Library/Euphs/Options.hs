@@ -2,12 +2,16 @@
 module Euphs.Options
     ( Opts(..)
     , parseOpts
-    , showUsage
-    , showUsageAndExit
+    , OptsList
+    , defaults
+    , options
+    , getOpts
     ) where
 
 import System.Exit
 import System.Console.GetOpt
+import System.Environment (getArgs)
+import Control.Monad (when)
 
 -- | The main options structure.
 data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
@@ -24,6 +28,10 @@ data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                  }
                  deriving (Show)
 
+-- | Type synonym for the list of options to the bot
+type OptsList = [OptDescr (Opts -> Opts)]
+
+-- | Default options
 defaults :: Opts
 defaults = Opts { heimHost   = "euphoria.io"
                 , heimPort   = 443
@@ -36,8 +44,8 @@ defaults = Opts { heimHost   = "euphoria.io"
                 , config     = ""
                 }
 
-
-options :: [OptDescr (Opts -> Opts)]
+-- | List of options available
+options :: OptsList
 options =
     [ Option "e" ["host"]
         (ReqArg (\arg opt -> opt {heimHost = arg}) "HOST") "Heim instance to connect to"
@@ -63,10 +71,10 @@ header :: String
 header = "Usage: Euphs [options]"
 
 -- | Function to parse commandline Options
-parseOpts :: [String] -> IO (Opts, [String])
-parseOpts argv =
-    case getOpt Permute options argv of
-        (o,n,[]  ) -> return (foldl (flip id) defaults o, n)
+parseOpts :: Opts -> OptsList -> [String] -> IO (Opts, [String])
+parseOpts defOpts opts argv =
+    case getOpt Permute opts argv of
+        (o,n,[]  ) -> return (foldl (flip id) defOpts o, n)
         (_,_,errs) -> ioError (userError (concat errs ++ showUsage))
 
 -- | Shows the usage message
@@ -78,3 +86,10 @@ showUsageAndExit :: IO ()
 showUsageAndExit = do
         putStrLn showUsage
         exitSuccess
+
+-- | Parses options from the commandline, using the Opts given in as a default to be overridden
+getOpts :: Opts -> OptsList -> IO Opts
+getOpts opt optL = do
+          (opts, _) <- getArgs >>= parseOpts opt optL
+          when (showHelp opts) showUsageAndExit
+          return opts

@@ -63,12 +63,12 @@ instance J.FromJSON EuphEvent where
           PingEvent     <$> ( v J..: "data" >>= (J..: "time"))
                         <*> ( v J..: "data" >>= (J..: "next"))
      "send-reply" ->
-          SendReply     <$> (fmap read $ v J..: "id")
+          SendReply     <$> fmap read (v J..: "id")
                         <*> v J..: "data"
      "send-event" ->
           SendEvent     <$> ( v J..: "data" )
      "nick-reply" ->
-          NickReply     <$> (fmap read $ v J..: "id")
+          NickReply     <$> fmap read (v J..: "id")
                         <*> v J..: "data"
                         <*> (v J..: "data" >>= (\x -> x J..:? "from" J..!=""))
                           -- (UserData <$> ( v J..: i"data" >>= (J..: "id"))
@@ -87,14 +87,14 @@ instance J.FromJSON EuphEvent where
                            -- )
                         <*> (v J..: "data" >>= (J..: "from"))
      "who-reply" ->
-          WhoReply      <$> (fmap read $ v J..: "id")
+          WhoReply      <$> fmap read (v J..: "id")
                         <*> (v J..: "data" >>= (J..: "listing"))
      "join-event" ->
           JoinEvent     <$> v J..: "data"
      "part-event" ->
           PartEvent     <$> v J..: "data"
      "log-reply" ->
-          LogReply      <$> (fmap read $ v J..: "id")
+          LogReply      <$> fmap read (v J..: "id")
                         <*> v J..: "data"
      "hello-event" ->
           HelloEvent <$> (v J..: "data" >>= (J..: "session"))
@@ -107,7 +107,7 @@ instance J.FromJSON EuphEvent where
                         <*> (v J..: "data" >>= (J..: "listing"))
                         <*> (v J..: "data" >>= (J..: "log"))
      "auth-reply" ->
-          AuthReply <$> (fmap read $ v J..: "id")
+          AuthReply <$> fmap read (v J..: "id")
                     <*> (v J..: "data" >>= (J..: "success"))
                     <*> (v J..: "data" >>= (\x -> x J..:? "reason" J..!= ""))
      "bounce-event" ->
