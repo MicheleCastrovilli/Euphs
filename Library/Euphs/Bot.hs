@@ -18,6 +18,7 @@ module Euphs.Bot (
   , getBotAgent
   , sendPacket
   , getBotConfig
+  , tellLog
 ) where
 
 import qualified Network.WebSockets          as WS
@@ -88,8 +89,8 @@ data Bot = Bot
 data BotFunctions = BotFunctions {
     eventsHook :: EuphEvent -> Net () -- ^ Main event loop. Every event not handled by the bot, calls this function.
   , dcHook :: Maybe (IO ()) -- ^ Special actions to run in a disconnect, for cleanup.
-  , helpShortHook :: Maybe (Net String) -- ^ A short !help description
-  , helpLongHook :: Maybe (Net String) -- ^ A long !help <botName> description
+  , helpShortHook :: Maybe ([String] -> Net String) -- ^ A short !help description
+  , helpLongHook :: Maybe ([String] -> Net String) -- ^ A long !help <botName> description
 }
 
 io :: MonadIO m => IO a -> m a
@@ -205,8 +206,8 @@ botQueue = do
                                                             ["!ping"] -> sendPong m
                                                             "!uptime" : x : _ -> when (x == "@" ++ thisName)
                                                                 $ getUptimeReply >>= \reply -> void $ sendPacket $ Send reply $ msgID m
-                                                            ["!help"] -> sendMaybeHelp m $ helpShortHook fun
-                                                            "!help" : x : _  -> when (x == "@" ++ thisName) $ sendMaybeHelp m $ helpLongHook fun
+                                                            ["!help"] -> sendMaybeHelp m [] $ helpShortHook fun
+                                                            "!help" : x : y  -> when (x == "@" ++ thisName) $ sendMaybeHelp m y $ helpLongHook fun
                                                             _ -> eventsHook fun p
                                        HelloEvent bs _ _ -> do
                                                             ag <- asks botAgent
@@ -220,7 +221,7 @@ botQueue = do
                  isReply AuthReply{} = True
                  isReply _ = False
                  sendPong x = void $ sendPacket $ Send "Pong!" (msgID x)
-                 sendMaybeHelp m = maybe (return ()) (\x -> x >>= (void . sendPacket . flip Send (msgID m)))
+                 sendMaybeHelp m l = maybe (return ()) (\x -> x l >>= (void . sendPacket . flip Send (msgID m)))
 
 forkBot :: Net () -> Net ()
 forkBot act = do

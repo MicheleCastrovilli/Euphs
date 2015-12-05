@@ -3,88 +3,90 @@
 {-# LANGUAGE ViewPatterns #-}
 module MusicBot where
 
-import qualified Data.Aeson as J
-import           Euphoria.Bot
-import           Euphoria.Events
-import           Euphoria.Types
-import           Euphoria.Commands
-import           Control.Concurrent
-import           Control.Applicative
-import           Control.Monad      (forever, mzero, void, when, unless, liftM2 , ap)
-import           Control.Retry
-import           Data.List
-import           Network.HTTP.Conduit
-import           Data.Char
-import           Data.Maybe
-import           System.Timeout
-import           Data.Time.Clock.POSIX
-import           Control.Exception
-import           System.Random
-import           Data.Function
-import qualified Data.Set as S
-import qualified Database.HDBC as H
-import qualified Database.HDBC.Sqlite3 as SQL
-import qualified Data.ByteString.Lazy.Char8 as B
-import qualified Data.Sequence as SQ
-import           Text.Regex.Base
-import           Text.Regex.TDFA
-import qualified Data.Foldable as F
+import           Euphs.Bot
+import           Euphs.Events
+import           Euphs.Types
+import           Euphs.Commands
+import           Euphs.Options
+import           YoutubeAPI
 
-data MConfig {
-    apiKey :: String
-  , stopped :: Bool
-}
+import qualified Data.Aeson as J
+
+data MConfig = MConfig {
+    apiKeyConf :: String
+  , stopped    :: Bool
+  , sequenceMemory :: Int
+  , restingTime :: Int
+} deriving (Show)
 
 instance J.FromJSON MConfig where
     parseJSON (J.Object v) = do
-      MConfig <$> v J..: "yt_api_key"
+      MConfig <$> (v J..: "youtube" >>= (J..: "api"))
               <*> v J..: "stopped"
+              <*> v J..:? "prevMemory" J..!= 50
+              <*> v J..:? "rest" J..!=6
 
-data YTState = YTState {
-              queue      :: MVar YTQueue,
-              skip       :: MVar Bool,
-              play       :: MVar Bool,
-              lastPlayed :: MVar YTQueue,
-              apiKey     :: String,
-              noPlay     :: Bool
-              }
+data MusicState = MusicState {
+    queue         :: TVar YTQueue
+  , previousQueue :: TVar YTQueue
+  , musicConfig   :: MConfig
+}
 
 type Requester = UserData
 
-data YTQueueItem = YTQueueItem {
-    ytmeta    :: YTMetadata,
-    requester :: Requester,
-    startTime :: YTTime,
-    stopTime  :: YTTime,
-    timePlayed :: Integer
-}   deriving (Show,Read)
+data QueueItem = QueueItem {
+    metadata  :: YTMetadata
+  , requester :: Requester
+  , startTime :: QueueTime
+  , stopTime  :: QueueTime
+  } deriving (Show,Read)
 
-type YTQueue = SQ.Seq YTQueueItem
+data QueuedItem = QueuedItem {
+    item :: QueueItem
+  , timePlayed :: Integer
+  }
 
-sequenceMemory :: Int
-sequenceMemory = 100
+type Queue = SQ.Seq QueueItem
 
-restingTime :: Integer
-restingTime = 6
+roomQueue :: String -> String
+roomQueue r = r ++ "-queue"
 
 main :: IO ()
 main = do
-    opts <- getBotOpts
-    config <- getBotConfig :: IO MConfig
+    opts <- getOpts (defaults { config = "MusicBot.yaml" }) options
+    config <- getBotConfig opts :: IO (Maybe MConfig)
+    musicBot <- makeBot config
+    botWithOpts musicBot opts
 
-getYtFun :: String -> String -> String ->  IO YTState
-getYtFun apiKeyStr noplay room =
-  do
-  !a <- catch (readFile (room ++ "-queue")) (\(SomeException _) -> return "")
-  let x = fromMaybe SQ.empty (maybeRead2 a :: Maybe YTQueue)
-  que <- newMVar x
-  skipV <- newEmptyMVar
-  playV <- newEmptyMVar
-  lastPlayedV <- newMVar SQ.empty
-  let noPlay' = fromMaybe False (maybeRead2 noplay :: Maybe Bool)
-  return $ YTState que skipV playV lastPlayedV apiKeyStr noPlay'
+makeBot :: MConfig -> Opts ->  IO MusicState
+makeBot config opts =
+    let room = takeWhile (/='-') (roomList opts)
+    do !prevQueue <- catch (readFile $ roomQueue room) (\(SomeException _) -> return "")
+    let x = maybe SQ.empty maybeRead2 prevQueue :: Maybe YTQueue
+    lpv <- newTVar SQ.empty
+    let ms = MusicState x lpv config
+    return $ BotFunctions {
+            eventsHook = musicHook ms
+          , dcHook = Just $ cleanUp room ms
+          , helpShortHook = Just helpFunShort
+          , helpLongHook = Just helpFun
+        }
 
-ytFunction :: YTState -> BotFunction
+cleanUp :: String -> MusicState -> IO ()
+cleanUp r ms = do
+               saveQueue <- atomically $ readTVar $ queue ms
+               writeFile (roomQueue r) $ show saveQueue
+
+musicLoop :: MusicState -> Net ()
+musicLoop ms = do return ()
+                  --stuff
+
+musicHook :: MusicState -> EuphEvent -> Net ()
+musicHook ms (SendEvent msg) =
+musicHook ms s@SnapshotEvent{} =
+musicHook ms _ = return ()
+
+{-ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
    = case (let z = words content in (map (map toLower) (take 1 z) ++ (drop 1 z))) of
      (stripPrefix "!dramaticskip"  -> Just _) :_      -> dramaticSkip ytState botState
@@ -111,10 +113,9 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
      (stripPrefix "!switch"        -> Just _) :x      -> switchSongs ytState botState mesgID x
      (stripPrefix "!swap"          -> Just _) :x      -> switchSongs ytState botState mesgID x
      (stripPrefix "!test"          -> Just r) :_      -> queueSongs [r] botState ytState mesgID sndUser (-1)
-     {-
+
       -(stripPrefix "!vsave"          -> Just _) :x:_    -> saveList botState ytState mesgID x
       -(stripPrefix "!vload"          -> Just _) :x:_    -> loadList botState ytState mesgID x
-      -}
      xs -> do
            let playLink = findPlay xs
            unless  ( null playLink ) (
@@ -126,11 +127,7 @@ ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !conte
                                  putMVar  (skip ytState)     False)
 
 ytFunction ytState botState se@(SnapshotEvent {}) =
-  forkIO (do
-            _ <- readMVar (closedBot botState)
-            ytq <- takeMVar (queue ytState)
-            writeFile (botRoom botState ++ "-queue") $ show ytq ) >>
-  when (not $ noPlay ytState) (
+   when (not $ noPlay ytState) (
     do
     let playLink = take 1 $ filter (\(_,x) -> not $ null x ) $
                    map (\x -> (x, findPlay $ words $ contentMsg x)) $
@@ -147,8 +144,6 @@ ytFunction ytState botState se@(SnapshotEvent {}) =
 
     ytLoop botState ytState
   )
-
-ytFunction _ _ _ = return ()
 
 addToBack :: YTQueueItem -> SQ.Seq YTQueueItem -> SQ.Seq YTQueueItem
 addToBack yt sq = if length sq > sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
@@ -211,73 +206,7 @@ getFormattedTime x = let hours  =  div x 3600
                       where auxTime :: Integer -> String
                             auxTime x = (if x < 10 then "0" else "") ++ show x
 
-helpIntro :: String -> String
-helpIntro botName' =
-    "I am @" ++ botName' ++ ", a bot created by viviff for use with rooms with video players.\n\
-   \This bot continues the work of NeonDJBot, the original &music bot by Drex."
 
-helpCommands :: String
-helpCommands =
-   "COMMANDS:\n\
-   \‣ Commands are case insensitive and ignore suffixes.\n\
-   \‣ Youtube.com links or ytLink's are of the form:\n  youtube.com/watch?v=FTQbiNvZqaY\n or simply the ytid, FTQbiNvZqaY, separated by a space or a comma.\n\
-   \‣ Some link shorteners are accepted, like:\n  youtu.be/FTQbiNvZqaY\n\
-   \‣ Not accepted in links: playlists or start-times."
-
-helpHelp :: String -> String
-helpHelp botName' = "Help:\n• !help @" ++ botName' ++" : This very help."
-
-helpQ :: String
-helpQ = "Queue Operation:\n\
-   \• !q <ytLink> <ytLink>  [-id or -ytid] (!queue):\n  Queues single or multiple ytLinks at the queue's end.\n\
-   \• !qf <ytLink> <ytLink>  [-id or -ytid] (!queuefirst):\n  Same as !q but queues at the start of the queue.\n\
-   \• !list [-v or -verbose][-r or -restricted][-id or -ytid][-links][-comma][-space]:\n  Shows a list of the songs currently in the queue,\n\
-   \  -verbose adds ytLinks while keeping the titles.\n\
-   \  -links and -id show only the links or ids without other info, separated by -comma and/or -space [default]."
-
-helpQAdv :: String
-helpQAdv = "Advanced Queue Operation:\n\
-   \• !ins <pos> <ytLink> <ytLink>  [-id or -ytid] (!insert):\n  Inserts the song(s) at position <pos>,\n  moving the existing songs down.\n\
-   \• !sub <pos> <ytLink>  (!substitute):\n  Substitutes the song at position <pos>\n  with the new ytLink.\n\
-   \• !del <pos> <num>  (!delete or !rem, !rm, !remove):\n  Deletes <num> songs from the queue\n  starting from the <pos> position.\n\
-   \• !switch <pos1> <pos2> (!swap):\n  Swaps the position of the two songs in the queue."
-
-helpPlay :: String
-helpPlay = "Playback Operation:\n\
-   \• !skip:\n  Skips the currently playing song,\n  if there is a next song in the queue.\n\
-   \• !dskip  (!dramaticskip):\n  Skips in any case, humorously, like the old times :D\n\
-   \• !dumpq  (!dumpqueue):\n  Dumps the queue.\n\
-   \• !play <ytLink>:\n  If no bots are present, this plays a single song.\n  It interrupts any current song,\n  no link shorteners allowed."
-
-helpCountry :: String
-helpCountry = "Country Restrictions:\n\
-   \Shows information for the current song, or optionally for one at position <pos>.\n\
-   \• !restrict [<pos> or <ytLink>](!restrictions or !restricted):\n  Shows the countries in which the song is not playable.\n\
-   \• !allowed [<pos>]:\n  Shows the countries in which the song is playable."
-
-helpExtra :: String
-helpExtra = "Extras:\n\
-   \• !nls  (!neonlightshow): Light Show!"
-
-helpBot :: String
-helpBot = "Bot Operation:\n\
-   \• !pause: Pauses the bot, temporarily.\n\
-   \• !restore: Restores the bot, from a pause.\n\
-   \• !kill: Kills the bot, forever.\n\
-   \• !ping: Pong!"
-
-helpIss :: String
-helpIss = "Feel free to report a problem here -> https://gitreports.com/issue/MicheleCastrovilli/Euphs\n\
-   \See the current status and issues here -> https://github.com/MicheleCastrovilli/Euphs/issues"
-
-helpFun :: String -> String
-helpFun botName' = intercalate "\n\n" [helpIntro botName', helpCommands, helpHelp botName',
-                                       helpQ, helpQAdv, helpPlay, helpCountry, helpExtra, helpBot, helpIss]
-
-helpFunShort :: String -> String
-helpFunShort botName' =
- "◉ :arrow_forward: To play a song: !q <youtube.com link> (now accepts youtu.be !)\n\
- \◉ Use !help @" ++ botName' ++ " for more options ('tab' will auto-complete)"
 
 ytDescription :: YTQueueItem -> String
 ytDescription yt = titleAuthorDuration yt ++ "\n!play youtube.com/watch?v=" ++ ytID (ytmeta yt) ++
@@ -362,7 +291,6 @@ listQueue ytState botState mesgID opts =
                restrictPart y restr = concat (let restrict = showRestrict $ ytmeta y in
                                            [spaces ++ shorten 56 restrict | restr && (not $ null restrict)])
                switchT x y z = if x then y else z
-
 
 replaceSong :: BotState -> YTState -> MessageID -> UserData -> String -> String -> IO ()
 replaceSong botState ytState mesgID sndUser num ytLink =
@@ -600,3 +528,6 @@ tagFunction ts botState (SendEvent message) =
       _ -> return ()
 
 tagFunction _ _ _ = return ()
+
+-}
+

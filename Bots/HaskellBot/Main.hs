@@ -13,7 +13,10 @@ import           Euphs.Types
 import           System.Environment
 import           Control.Concurrent
 import           Control.Monad        (when, void, forever)
-import           Data.Char            (isAlphaNum)
+import           Data.Char            (isAlphaNum, isSpace)
+import           Data.Maybe           (listToMaybe, fromMaybe)
+import qualified Data.List            as L
+import qualified Data.Text            as T
 import           System.Process
 import           System.IO
 import           System.Exit          ( ExitCode(..) )
@@ -30,9 +33,24 @@ main = bot muevalBot
 
 myFun :: EuphEvent -> Net ()
 myFun (SendEvent m) = case contentMsg m of
-                        "!testing" -> void $ sendPacket $ Send "Boop" $ msgID m
-                        _ -> return ()
-myFun _ = return ()
+                        "!who" -> do
+                                  w <- sendPacket Who
+                                  let equ = \x y -> name x == name y
+                                  let grsort = L.groupBy equ . L.sortBy (\x y -> compare (name x) (name y))
+                                  let fil = filter (isPrefixOf "bot:" . userID)
+                                  let stuff = unlines $ map show $ concat $ filter (\x -> length x > 1) $ grsort  $ fil $ users w
+                                  void $ sendPacket $ Send stuff $ msgID m
+                                  tellLog $ T.pack $ show w
+                        _ -> tellLog $ T.pack $ show m
+myFun (SnapshotEvent _ _ _ _ _) = do
+                                  w <- sendPacket Who
+                                  let equ = \x y -> name x == name y
+                                  let grsort = L.groupBy equ . L.sortBy (\x y -> compare (name x) (name y))
+                                  let fil = filter (isPrefixOf "bot:" . userID)
+                                  let stuff = unlines $ map show $ concat $ filter (\x -> length x > 1) $ grsort  $ fil $ users w
+                                  tellLog $ T.pack $ stuff
+
+myFun x = tellLog $ T.pack $ show x
 
 --fortuneFunction :: BotFunction
 --fortuneFunction botState (SendEvent message)
@@ -83,8 +101,8 @@ myFun _ = return ()
 
 muevalBot = emptyBot {
     eventsHook = muevalFunction
-  , helpShortHook = Just shortHelp
-  , helpLongHook = Just longHelp
+  , helpShortHook = Just $ const shortHelp
+  , helpLongHook = Just $ const longHelp
 }
 
 shortHelp :: Net String
@@ -103,8 +121,11 @@ muevalFunction (SendEvent message) =
     case words (contentMsg message) of
       "!haskell" : _ -> case stripPrefix "!haskell" $ contentMsg message of
                           Nothing -> return ()
-                          Just x -> io (readProcess' "mueval" ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-e", x ] []) >>=
-                              (\y -> void $ sendPacket $ Send (concatMap format y) $ msgID message)
+                          Just x -> do
+                              y <- io $ readProcess' "mueval"
+                                ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-e", x ] []
+                              let y' = fromMaybe y (maybeRead y)
+                              void $ sendPacket $ Send (concatMap format y') $ msgID message
       "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> io (readProcess' "hoogle"
@@ -158,21 +179,6 @@ readProcess' cmd args input = do
 format :: Char -> String
 format ',' = " , "
 format c = [c]
---
---
---talkBasicFun :: Chan MessageID -> BotFunction
---talkBasicFun chan botState (SnapshotEvent _ _ _ _ _)
---  = forever (getLine >>= \x -> sendPacket botState (Send x ""))
---
---talkBasicFun chan botState (SendEvent message)
---    = case words $ contentMsg message of
---      (stripPrefix "!countbots" ->  Just r):x -> sendPacket botState Who >> writeChan chan (msgID message)
---      (stripPrefix "!help" -> Just _):r:_ -> when (filter isAlphaNum r == filter isAlphaNum (botName botState))
---                                             $ sendPacket botState $ Send "Help: !countbots for counting the current bots in the channel." $ msgID message
---      _ -> return ()
---talkBasicFun chan botState (WhoReply x y)
--- =  readChan chan >>= sendPacket botState . Send (show $ length $ filter (isPrefixOf "bot:" . userID) y)
---
---
---
---talkBasicFun _ _ _ = return ()
+
+maybeRead :: Read a => String -> Maybe a
+maybeRead = fmap fst . listToMaybe . filter (null . dropWhile isSpace . snd) . reads
