@@ -4,13 +4,21 @@ import qualified Data.Aeson as J
 import Network.URI
 import Data.List.Split
 import Control.Monad
+import Text.Parsec
+import Data.Char (isAlphaNum)
+import Data.List (stripPrefix, isInfixOf, isSuffixOf)
+import qualified Control.Applicative as A ((<|>))
+import Debug.Trace (traceShowId)
 
 import Utils
 
+import Euphs.Easy
+
 type YoutubeID = String
-type YTTime = Integer
+type YTTime = Int
 type YTRequest = (YoutubeID, Maybe YTTime, Maybe YTTime)
 
+{-
 data YoutubeRequest = YoutubeRequest {
     youtubeID :: YoutubeID
   , startTime :: Maybe YTTime
@@ -27,62 +35,113 @@ data YTMetadata = YTMetadata {
   , restricted :: [String]
   , allowed :: [String]
 } deriving (Show, Read)
+-}
 
+------------------------------  BOT   TIME ------------------------------
+
+main :: IO ()
+main = easyBot [("!test", (testFun, "A test function", "This should explain more, but doesn't."))]
+
+testFun s = return $ unlines $ map (\x -> maybe ("Couldn't parse the link: " ++ x) show $ parseRequest x) $ words s
+
+------------------------------ END BOT TIME ------------------------------
+
+-- | Part of the URL for asking the youtube API
 apiUrl :: String
 apiUrl = "https://content.googleapis.com/youtube/v3/videos?part=snippet%2C+status%2C+contentDetails&id="
 
+-- | The API key, passed from the config outside, in the yaml file
 apiToken :: String -> String
 apiToken apiKeyStr = "&key=" ++ apiKeyStr
 
+-- | Parsing a request from a link
 parseRequest :: String -> Maybe YTRequest
 parseRequest request = do
-    uri <- parseURI request --let's parse what we got
-    uriAuth <- uriAuthority uri -- let's parse the domain part
-    parseGoogle uri uriAuth <|> parseYoutube uri uriauth
+    uri <- parseURI request A.<|> (traceShowId $ parseURIReference $ "//" ++ request)
+    uriAuth <- traceShowId $ uriAuthority uri
+    parseGoogle uri uriAuth A.<|> parseYoutube uri uriAuth
 
---             let mYT = "youtube.com/watch"
---             let mVid = param ++ "v=([A-Za-z0-9_\\-]{9,})" :: String
---             let mYTS = "youtu.be/([A-Za-z0-9_\\-]{9,})" :: String
---             let param = "(&|\\?)"
---             let t1 c = param ++ c ++"=([0-9]+h)?([0-9]+m)?([0-9]+s?)?" :: String
---
---             (before, _, after, groups)  <-  y =~~ m1 <|> y =~~ m2 :: Maybe (String, String, String, [String])
---             let startTime = maybe 0 parseTime (after =~~  t1 "t"  :: Maybe (String, String, String, [String]))
---             let endTime   = maybe (-1) parseTime (after =~~  t1 "te" :: Maybe (String, String, String, [String]))
---             if endTime > 0  && startTime > endTime then
---                 return $ (groups !! 0,  endTime, startTime)
---             else
---                 return $ (groups !! 0, startTime, endTime)
---             where readFun x = fromMaybe 0 (maybeRead2 (takeWhile isNumber x) :: Maybe Integer)
---                   parseTime (_, _, _, grp) = sum $ zipWith (*) [3600, 60, 1] $ map readFun $ drop 1 grp
-
+-- | Parsing a google referral link
 parseGoogle :: URI -> URIAuth -> Maybe YTRequest
 parseGoogle uri uriAuth = do
-    guard $ isInfixOf "google" $ uriRegname uriAuth
+    guard $ isInfixOf "google" $ uriRegName uriAuth
     guard $ (== "/url") $ uriPath uri
-    let url = "url="
-    url <- fmap (stripPrefix url) $ safeHead $ filter (== url) $ wordsBy (`elem` "?&") uriQuery
-    uri <- parseURI $ unEscapeUrl url
-    uriAuth <- uriAuthority uri
-    parseYoutube uri uriAuth
+    let qt = queryTable $ uriQuery uri
+    url <- join $ lookup "url" qt
+    uri' <- parseURI  (unEscapeString url) A.<|> parseURIReference ("//" ++ unEscapeString url)
+    uriAuth' <- uriAuthority uri'
+    parseYoutube uri' uriAuth'
 
+-- | Convenience function, to parse both the youtube.com and youtu.be link
 parseYoutube :: URI -> URIAuth -> Maybe YTRequest
-parseYoutube uri uriAuth = parseYoutubeInternal uri uriAuth <|> parseYoutubeShort uri uriAuth
+parseYoutube uri uriAuth = parseYoutubeInternal uri uriAuth A.<|> parseYoutubeShort uri uriAuth
 
+-- | Function to parse exclusively the youtube.com link
 parseYoutubeInternal :: URI -> URIAuth -> Maybe YTRequest
 parseYoutubeInternal uri uriAuth = do
-    guard $ (== "www.youtube.com") $ uriRegname uriAuth
+    guard $ (isSuffixOf "youtube.com") $ uriRegName uriAuth
     guard $ (== "/watch") $ uriPath uri
-    let queryTable = map (\x -> let y = splitOn "=" x in (head y, safeHead $ drop 1 y)) $  wordsBy (`elem` "?&") uriQuery
-    ytid <- join $ lookup "v" queryTable
+    let qt =  queryTable $ uriQuery uri
+    ytid <- join $ lookup "v" qt
+    guardId ytid
+    let (timeStart, timeEnd) = parseTimes qt
+    return (ytid, timeStart, timeEnd)
 
-    return (ytid
+-- | Function to parse exclusively the youtu.be link
+parseYoutubeShort :: URI -> URIAuth -> Maybe YTRequest
+parseYoutubeShort uri uriAuth = do
+    guard $ (isSuffixOf "youtu.be") $ uriRegName uriAuth
+    let ytid = uriPath uri
+    guardId ytid
+    let (timeStart, timeEnd) = parseTimes $ queryTable $ uriQuery uri
+    return (ytid, timeStart, timeEnd)
 
-parseYoutube :: URI -> URIAuth -> Maybe YTRequest
+-- | Funciton to parse the time in the NhNmNs notation, providing an order to the two times
+parseTimes :: [(String , Maybe String)] -> (Maybe YTTime, Maybe YTTime)
+parseTimes q = let t1 = parseAux q "t"
+                   t2 = parseAux q "te"
+               in  case (t1,t2) of
+                     (Just m1, Just m2) -> if m1 > m2 then (Just m2,Just m1) else (Just m1,Just m2)
+                     x -> x
+    where parseAux q par  = do
+            a <- join $ lookup par q
+            parseTimeQuery a
 
+-- | Auxiliary function for parsing the time
+parseTimeQuery :: String -> Maybe YTTime
+parseTimeQuery s =
+    case parse auxParser "(unknown)" s of
+        Left _ -> Nothing -- Ignoring the error, in future i could print it to the user, to tell what they did wrong.
+        Right x -> Just x
+    where auxParser = do -- We are in the Parser monad right now
+            h <- try (aux' 'h') <|> return 0 -- Giving 0 in case the time is not parsed
+            m <- try (aux' 'm') <|> return 0 -- Giving 0 in case the time is not parsed
+            s' <- aux'' 's' <|> return 0 -- Giving 0 in case the time is not parsed
+            eof
+            return (h*3600+m*60+s')
+          aux' c = (do
+            l <- many1 digit
+            char c
+            case (maybeRead l :: Maybe Int) of
+                Nothing -> fail "Integer out of Int boundaries"
+                Just x -> return x ) :: Parsec String () Int
+          aux'' c = (do
+            l <- many1 digit
+            optional  $ char c
+            case (maybeRead l :: Maybe Int) of
+                Nothing -> fail "Integer out of Int boundaries"
+                Just x -> return x ) :: Parsec String () Int
+
+-- | Auxiliary function, for converting the query URI, into a lookup list
+queryTable :: String -> [(String, Maybe String)]
+queryTable s = map (\x -> let y = splitOn "=" x in (head y, safeHead $ drop 1 y)) $ wordsBy (`elem` "?&") s
+
+-- | Auxiliary guard, to check if an ID is valid.
 guardId :: (MonadPlus m) => String -> m ()
 guardId ytid = guard $ length ytid >=9 && all (\x -> isAlphaNum x || x == '-' || x == '_') ytid
 
+
+{-
 retrieveRequest :: YTState -> YTRequest -> UserData -> Integer -> IO (Either String YTQueueItem)
 retrieveRequest ytState (ytid, starttime, endtime) usr time = retrieveYtData ytid ytState
     >>= (return . fmap (\x -> YTQueueItem x usr (modify x starttime) (modifyE x endtime) time))
@@ -117,7 +176,6 @@ balanceAllowed yt | not $ null $ restricted yt = let restOrd = sort (restricted 
                       allowed = S.toAscList countries
                     }
 
-
 instance J.FromJSON YTMetadata where
   parseJSON (J.Object v) = do
     tmp <-  safeHead <$> v J..: "items"
@@ -134,3 +192,5 @@ instance J.FromJSON YTMetadata where
                              <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
                              <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return []) >>= (return . balanceAllowed))
   parseJSON _ = mzero
+
+-}

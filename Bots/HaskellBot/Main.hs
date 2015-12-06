@@ -42,14 +42,14 @@ myFun (SendEvent m) = case contentMsg m of
                                   void $ sendPacket $ Send stuff $ msgID m
                                   tellLog $ T.pack $ show w
                         _ -> tellLog $ T.pack $ show m
-myFun (SnapshotEvent _ _ _ _ _) = do
+myFun a@(SnapshotEvent _ _ _ _ _) = do
+                                  tellLog $ T.pack $ show a
                                   w <- sendPacket Who
                                   let equ = \x y -> name x == name y
                                   let grsort = L.groupBy equ . L.sortBy (\x y -> compare (name x) (name y))
                                   let fil = filter (isPrefixOf "bot:" . userID)
                                   let stuff = unlines $ map show $ concat $ filter (\x -> length x > 1) $ grsort  $ fil $ users w
                                   tellLog $ T.pack $ stuff
-
 myFun x = tellLog $ T.pack $ show x
 
 --fortuneFunction :: BotFunction
