@@ -3,18 +3,20 @@ module YoutubeAPI where
 import qualified Data.Aeson as J
 import Control.Monad
 import Control.Retry
-import Control.Monad.Trans (MonadIO)
-import Control.Monad.Reader (MonadReader)
 
 import Data.List.Split
 import Data.List (stripPrefix, isInfixOf, isSuffixOf)
+import Data.Char (isAlphaNum, isNumber)
+import Data.Maybe (fromMaybe)
 import Text.Parsec
 import qualified Control.Applicative as A ((<|>))
 
 import Network.URI
 import qualified Network.Http.Client as H
+import qualified Data.ByteString.Char8 as B
 
 import Euphs.Easy
+import Euphs.Types (UserData)
 
 import Utils
 import Types
@@ -127,23 +129,33 @@ guardId ytid = guard $ length ytid >=9 && all (\x -> isAlphaNum x || x == '-' ||
 
 
 
-retrieveRequest :: (MonadIO m, MonadReader MusicState m) =>
+retrieveRequest :: MusicState ->
                    YTRequest ->
                    UserData ->
-                   m (Either String YTQueueItem)
-retrieveRequest (ytid, starttime, endtime) usr = do
-    y <- retrieveYtData ytid ytState
-    return $  fmap (\x -> YTQueueItem x usr (modify x starttime) (modifyE x endtime) time) y
-    where modify  x time = if duration x < time then 0 else time
-          modifyE x time = if duration x > time && time > 0 then time else duration x
+                   IO [QueueItem]
+retrieveRequest ms (ytid, starttime, endtime) usr = do
+    y <- retrieveYoutube ms ytid
+    let l = case y of
+                None -> []
+                One x -> [x]
+                Playlist p -> p
+    return $  fmap (\x -> QueueItem x usr (modify x starttime) $ modifyE x endtime) l
+    where modify  x time = fromMaybe 0 $ do
+                           t <- time
+                           guard $ duration x < t
+                           time
+          modifyE x time = fromMaybe (duration x) $ do
+                           t <- time
+                           guard $ duration x > t && t > 0
+                           time
 
-retrieveYoutube :: (MonadIO m, MonadReader MusicState m) =>
-                  YoutubeID ->
-                  m YTResult
-retrieveYoutube ytId = do
-  ak <- asks (apiKeyConf . musicConfig)
-  ytJson <- recoverAll limitedBackoff
-                $ H.get (apiUrl ++ ytId ++ apiToken ak)
-                    H.jsonHandler :: m YTResult
+retrieveYoutube :: MusicState ->
+                   YoutubeID ->
+                   IO YTResult
+retrieveYoutube ms ytId = do
+    let ak = apiKeyConf $ musicConfig ms
+    recoverAll limitedBackoff
+                $ H.get (B.pack $ apiUrl ++ ytId ++ apiToken ak)
+                    H.jsonHandler :: IO YTResult
 
 

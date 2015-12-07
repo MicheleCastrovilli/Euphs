@@ -7,7 +7,7 @@ import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import Data.Maybe (fromMaybe)
 import Data.List (sort)
-import Data.Char (isAlphaNum, isNumber)
+import Data.Char (isNumber)
 import Euphs.Types (UserData)
 import Control.Applicative ((<|>))
 
@@ -68,13 +68,13 @@ data YTMetadata = YTMetadata {
     ytID :: String
   , title :: String
   , thumbnailUrl :: String
-  , duration :: Integer
+  , duration :: Int
   , embeddable :: Bool
   , restricted :: [String]
   , allowed :: [String]
 } deriving (Show, Read)
 
-data YTResult = One YTMetadata | None | List [YTMetadata]
+data YTResult = One YTMetadata | None | Playlist [YTMetadata]
 
 instance J.FromJSON YTMetadata where
     parseJSON (J.Object ytl) = do
@@ -96,9 +96,9 @@ instance J.FromJSON YTResult where
         else if res == 1 then
             ((One . head) <$> v J..: "items")
         else
-            List <$> (v J..: "items")
+            Playlist <$> (v J..: "items")
 
-parseISO8601 :: String -> Integer
+parseISO8601 :: String -> Int
 parseISO8601 x =
   let sec  = readFun 'S'
       min' = readFun 'M'
@@ -107,7 +107,7 @@ parseISO8601 x =
   where readFun y = fromMaybe 0 (maybeRead
                         (reverse $ takeWhile isNumber $
                             drop 1 $ dropWhile (/=y) $ reverse x
-                        ) :: Maybe Integer)
+                        ) :: Maybe Int)
 
 balanceAllowed :: YTMetadata -> YTMetadata
 balanceAllowed yt
