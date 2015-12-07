@@ -1,41 +1,23 @@
 module YoutubeAPI where
 
 import qualified Data.Aeson as J
-import Network.URI
-import Data.List.Split
 import Control.Monad
-import Text.Parsec
-import Data.Char (isAlphaNum)
-import Data.List (stripPrefix, isInfixOf, isSuffixOf)
-import qualified Control.Applicative as A ((<|>))
-import Debug.Trace (traceShowId)
+import Control.Retry
+import Control.Monad.Trans (MonadIO)
+import Control.Monad.Reader (MonadReader)
 
-import Utils
+import Data.List.Split
+import Data.List (stripPrefix, isInfixOf, isSuffixOf)
+import Text.Parsec
+import qualified Control.Applicative as A ((<|>))
+
+import Network.URI
+import qualified Network.Http.Client as H
 
 import Euphs.Easy
 
-type YoutubeID = String
-type YTTime = Int
-type YTRequest = (YoutubeID, Maybe YTTime, Maybe YTTime)
-
-{-
-data YoutubeRequest = YoutubeRequest {
-    youtubeID :: YoutubeID
-  , startTime :: Maybe YTTime
-  , endTime   :: Maybe YTTime
-}
-
-data YTMetadata = YTMetadata {
-    ytID :: String
-  , title :: String
-  , thumbnailUrl :: String
-  , duration :: Integer
-  , durationStr :: String
-  , embeddable :: Bool
-  , restricted :: [String]
-  , allowed :: [String]
-} deriving (Show, Read)
--}
+import Utils
+import Types
 
 ------------------------------  BOT   TIME ------------------------------
 
@@ -45,6 +27,9 @@ main = easyBot [("!test", (testFun, "A test function", "This should explain more
 testFun s = return $ unlines $ map (\x -> maybe ("Couldn't parse the link: " ++ x) show $ parseRequest x) $ words s
 
 ------------------------------ END BOT TIME ------------------------------
+
+limitedBackoff :: RetryPolicy
+limitedBackoff = exponentialBackoff 50 <> limitRetries 5
 
 -- | Part of the URL for asking the youtube API
 apiUrl :: String
@@ -57,8 +42,8 @@ apiToken apiKeyStr = "&key=" ++ apiKeyStr
 -- | Parsing a request from a link
 parseRequest :: String -> Maybe YTRequest
 parseRequest request = do
-    uri <- parseURI request A.<|> (traceShowId $ parseURIReference $ "//" ++ request)
-    uriAuth <- traceShowId $ uriAuthority uri
+    uri <- parseURI request A.<|> (parseURIReference $ "//" ++ request)
+    uriAuth <- uriAuthority uri
     parseGoogle uri uriAuth A.<|> parseYoutube uri uriAuth
 
 -- | Parsing a google referral link
@@ -97,7 +82,7 @@ parseYoutubeShort uri uriAuth = do
     return (ytid, timeStart, timeEnd)
 
 -- | Funciton to parse the time in the NhNmNs notation, providing an order to the two times
-parseTimes :: [(String , Maybe String)] -> (Maybe YTTime, Maybe YTTime)
+parseTimes :: [(String , Maybe String)] -> (Maybe QueueTime, Maybe QueueTime)
 parseTimes q = let t1 = parseAux q "t"
                    t2 = parseAux q "te"
                in  case (t1,t2) of
@@ -108,7 +93,7 @@ parseTimes q = let t1 = parseAux q "t"
             parseTimeQuery a
 
 -- | Auxiliary function for parsing the time
-parseTimeQuery :: String -> Maybe YTTime
+parseTimeQuery :: String -> Maybe QueueTime
 parseTimeQuery s =
     case parse auxParser "(unknown)" s of
         Left _ -> Nothing -- Ignoring the error, in future i could print it to the user, to tell what they did wrong.
@@ -141,56 +126,24 @@ guardId :: (MonadPlus m) => String -> m ()
 guardId ytid = guard $ length ytid >=9 && all (\x -> isAlphaNum x || x == '-' || x == '_') ytid
 
 
-{-
-retrieveRequest :: YTState -> YTRequest -> UserData -> Integer -> IO (Either String YTQueueItem)
-retrieveRequest ytState (ytid, starttime, endtime) usr time = retrieveYtData ytid ytState
-    >>= (return . fmap (\x -> YTQueueItem x usr (modify x starttime) (modifyE x endtime) time))
+
+retrieveRequest :: (MonadIO m, MonadReader MusicState m) =>
+                   YTRequest ->
+                   UserData ->
+                   m (Either String YTQueueItem)
+retrieveRequest (ytid, starttime, endtime) usr = do
+    y <- retrieveYtData ytid ytState
+    return $  fmap (\x -> YTQueueItem x usr (modify x starttime) (modifyE x endtime) time) y
     where modify  x time = if duration x < time then 0 else time
           modifyE x time = if duration x > time && time > 0 then time else duration x
 
-retrieveYtData :: YoutubeID -> YTState -> IO (Either String YTMetadata)
-retrieveYtData ytId ytState = do
-  --putStrLn ytId
-  ytJson <- recoverAll limitedBackoff $ simpleHttp $ apiUrl ++ ytId ++ apiToken (apiKey ytState)
-  --B.putStrLn ytJson
-  return $ J.eitherDecode ytJson
+retrieveYoutube :: (MonadIO m, MonadReader MusicState m) =>
+                  YoutubeID ->
+                  m YTResult
+retrieveYoutube ytId = do
+  ak <- asks (apiKeyConf . musicConfig)
+  ytJson <- recoverAll limitedBackoff
+                $ H.get (apiUrl ++ ytId ++ apiToken ak)
+                    H.jsonHandler :: m YTResult
 
-parseISO8601 :: String -> Integer
-parseISO8601 x =
-  let sec  = readFun 'S'
-      min' = readFun 'M'
-      hour = readFun 'H'
-      in (sec + 60*min' + hour*3600)
-  where readFun y = fromMaybe 0 (maybeRead2 (reverse $ takeWhile isNumber $ drop 1 $ dropWhile (/=y) $ reverse x ) :: Maybe Integer)
 
-balanceAllowed :: YTMetadata -> YTMetadata
-balanceAllowed yt | not $ null $ restricted yt = let restOrd = sort (restricted yt) in yt {
-                        restricted = restOrd,
-                        allowed = S.toAscList (S.difference countries (S.fromAscList restOrd))
-                        }
-                  | not $ null $ allowed yt =  let allowOrd = sort (allowed yt) in yt {
-                        restricted = S.toAscList (S.difference countries (S.fromAscList allowOrd)),
-                        allowed = allowOrd
-                    }
-                  | otherwise = yt {
-                      allowed = S.toAscList countries
-                    }
-
-instance J.FromJSON YTMetadata where
-  parseJSON (J.Object v) = do
-    tmp <-  safeHead <$> v J..: "items"
-    case tmp of
-      Nothing -> mzero
-      Just ytl -> do
-                  snippet <- ytl J..: "snippet"
-                  (YTMetadata <$> ( ytl J..: "id" )
-                             <*> ( snippet J..: "title" )
-                             <*> ( snippet J..: "thumbnails" >>= (J..: "default") >>= (J..: "url"))
-                             <*> ( parseISO8601 <$> ( ytl J..: "contentDetails" >>= (J..: "duration")))
-                             <*> ( ytl J..: "contentDetails" >>= (J..: "duration"))
-                             <*> ( ytl J..: "status" >>= (J..: "embeddable"))
-                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
-                             <*> ((ytl J..: "contentDetails"  >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return []) >>= (return . balanceAllowed))
-  parseJSON _ = mzero
-
--}
