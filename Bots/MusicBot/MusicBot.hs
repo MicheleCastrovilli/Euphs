@@ -51,7 +51,7 @@ main = do
 makeBot :: MConfig -> Opts ->  IO BotFunctions
 makeBot config opts = do
     let room = takeWhile (/='-') (roomList opts)
-    !prevQueue <- catch (readFile $ roomQueue room) (\x -> const (return "") (x :: SomeException))
+    !prevQueue <- catch (readFile $ roomQueue room) (\x -> print (x :: SomeException) >> return "")
     let !x = fromMaybe SQ.empty $ maybeRead prevQueue :: Queue
     qv  <- atomically $ newTVar x
     lpv <- atomically $ newTVar SQ.empty
@@ -84,7 +84,9 @@ musicCommand :: MessageData -> MusicBot ()
 musicCommand msg = matchCommand msg >> matchPlay msg
 
 matchCommand :: MessageData ->  MusicBot ()
-matchCommand md = maybe (return ()) (flip ($) md . snd) $ headMay $ filter (\(test,_) -> test md) commandList
+matchCommand md = case contentMsg md of
+                    '!':_ -> maybe (return ()) (flip ($) md . snd) $ headMay $ filter (\(x,_) -> x md) commandList
+                    _ -> return ()
 
 commandList :: [(MessageData -> Bool , MessageData -> MusicBot ())]
 commandList = [] ++ map (\(x,y) -> (x . contentMsg, y)) textCommands
@@ -92,44 +94,42 @@ commandList = [] ++ map (\(x,y) -> (x . contentMsg, y)) textCommands
 textCommands :: [(String -> Bool, MessageData -> MusicBot ())]
 textCommands =
     map (\(x, x',y) -> (\z -> and (zipWith (==) z x') && length z >= length x, y)) nonCasePrefix ++
-    map (\(x,y) -> (flip isPrefixOf x . map toLower, y)) nonCasePrefixOnly ++
-    map (\(x,y) -> ((\z -> maybe False (==x) (fmap (map toLower) $ headMay $ words z)), y)) nonCase ++
+    map (\(x,y) -> (isPrefixOf x . map toLower, y)) nonCasePrefixOnly ++
+    map (\(x,y) -> (maybe False ((==x) . map toLower) . headMay . words, y)) nonCase ++
     map (\(x,y) -> ((\z -> maybe False (==z) (headMay $ words z)), y)) exactWord
 
 nonCasePrefix :: [(String,String, MessageData -> MusicBot ())]
 nonCasePrefix =
-    [ dup "!dramaticskip" dSkip
-    , dup "!dskip" dSkip
-    , ("!dumpq", "!dumpqueue", dumpQ)
-    , ("!queuef", "!queuefirst", queueFirst)
-    , ("!restr", "!restricted" , restrict)
-    , ("!restr", "!restrictions" , restrict)
-    , ("!allow", "!allowed" , allow)
-    , ("!sub", "!substitute" , substitute)
-    , ("!rep", "!replace" , substitute)
-    , ("!ins", "!insert" , insert)
-    , ("!del", "!delete" , delete)
-    , ("!rem", "!remove" , delete)
+    [ ("!dumpq"  , "!dumpqueue"    , dumpQ)
+    , ("!queuef" , "!queuefirst"   , queueFirst)
+    , ("!restr"  , "!restricted"   , restrict)
+    , ("!restr"  , "!restrictions" , restrict)
+    , ("!allow"  , "!allowed"      , allow)
+    , ("!sub"    , "!substitute"   , substitute)
+    , ("!rep"    , "!replace"      , substitute)
+    , ("!ins"    , "!insert"       , insert)
+    , ("!del"    , "!delete"       , delete)
+    , ("!rem"    , "!remove"       , delete)
     ]
 
 nonCasePrefixOnly :: [(String, MessageData -> MusicBot ())]
 nonCasePrefixOnly =
-    [ ("!qf", queueFirst)
-    , ("!q", queueSong)
-    , ("!skip", skip)
+    [ ("!qf"                       , queueFirst)
+    , ("!q"                        , queueSong)
+    , ("!skip"                     , skip)
     ]
 
 nonCase :: [(String, MessageData -> MusicBot ())]
 nonCase =
-    [ ("!dramaticskip", dSkip)
-    , ("!dskip", dSkip)
-    , ("!rm", delete)
-    , ("!list", list)
-    , ("!kill", list)
-    , ("!nls", neonLights)
-    , ("!neonlightshow", neonLights)
-    , ("!switch", swap)
-    , ("!swap", swap)
+    [ ("!dramaticskip"             , dSkip)
+    , ("!dskip"                    , dSkip)
+    , ("!rm"                       , delete)
+    , ("!list"                     , list)
+    , ("!kill"                     , kill)
+    , ("!nls"                      , neonLights)
+    , ("!neonlightshow"            , neonLights)
+    , ("!switch"                   , swap)
+    , ("!swap"                     , swap)
     ]
 
 exactWord :: [(String, MessageData -> MusicBot ())]
@@ -168,11 +168,18 @@ skip x = lift $ void $ sendReply x "Skipped, pretend"
 list :: MessageData -> MusicBot ()
 list x = lift $ void $ sendReply x "List, pretend"
 
+kill :: MessageData -> MusicBot ()
+kill x = lift $ void $ sendReply x "Kill, pretend"
+
 swap :: MessageData -> MusicBot ()
 swap x = lift $ void $ sendReply x "Swap, pretend"
 
 neonLights :: MessageData -> MusicBot ()
 neonLights x = lift $ void $ sendReply x "Imagine an amazing lightshow here"
+
+testCommand :: MessageData -> MusicBot ()
+testCommand x = (io $ putStrLn $ show $ map (\(y,z) -> y x) commandList) >> (lift $ void $ sendReply x "Help")
+
 
 matchPlay :: MessageData -> MusicBot ()
 matchPlay x = return ()
