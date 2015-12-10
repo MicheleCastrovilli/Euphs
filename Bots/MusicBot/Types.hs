@@ -31,7 +31,22 @@ data MusicState = MusicState {
     queue         :: TVar Queue
   , previousQueue :: TVar Queue
   , musicConfig   :: MConfig
+  , peopleList    :: TVar People
 }
+
+data User = User {
+    ud :: UserData
+  , c  :: Country
+}
+
+instance Eq User where
+    x == y = ud x == ud y
+
+instance Ord User where
+    compare x y = compare (ud x) (ud y)
+
+type People = S.Set User
+type Country = String
 
 type Requester = UserData
 type QueueTime = Int

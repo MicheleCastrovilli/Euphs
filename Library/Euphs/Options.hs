@@ -23,7 +23,7 @@ data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
                                            -- Fall back to 'stdout' when
                                            -- empty
                  , botAccount :: FilePath  -- ^ Email and password for logging into the account
-                 , nick       :: String    -- ^ The nick the Bot will be using.
+                 , botNick    :: String    -- ^ The nick the Bot will be using.
                  , config     :: FilePath  -- ^ Config file for specific bot options
                  }
                  deriving (Show)
@@ -40,7 +40,7 @@ defaults = Opts { heimHost   = "euphoria.io"
                 , showHelp   = False
                 , logTarget  = ""
                 , botAccount = ""
-                , nick       = "EmptyBot"
+                , botNick    = "EmptyBot"
                 , config     = ""
                 }
 
@@ -62,7 +62,7 @@ options =
     , Option "c" ["config"]
         (ReqArg (\arg opt -> opt {config = arg}) "CONFIG") "Path for the bot config file"
     , Option "n" ["nick"]
-        (ReqArg (\arg opt -> opt {nick = arg}) "NICK") "Nickname to use"
+        (ReqArg (\arg opt -> opt {botNick = arg}) "NICK") "Nickname to use"
     , Option "h" ["help"]
         (NoArg (\opt -> opt {showHelp = True})) "Shows this help."
     ]

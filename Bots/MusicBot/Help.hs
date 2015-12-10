@@ -1,11 +1,13 @@
 module Help where
 
 import Euphs.Bot (Net, botName)
+
 import Control.Monad.Reader (asks)
 import Options.Applicative
+import Safe
+import Data.List
 
-
-helpIntro :: String ->  String
+helpIntro :: String  ->  String
 helpIntro bn =
     "I am @" ++ bn ++ ", a bot created by viviff for use with rooms with video players.\n\
    \This bot continues the work of NeonDJBot, the original &music bot by Drex."
@@ -64,12 +66,15 @@ helpIss :: String
 helpIss = "Feel free to report a problem here -> https://gitreports.com/issue/MicheleCastrovilli/Euphs\n\
    \See the current status and issues here -> https://github.com/MicheleCastrovilli/Euphs/issues"
 
-helpFun :: String -> String
-helpFun botName' = intercalate "\n\n" [helpIntro botName', helpCommands, helpHelp botName',
+helpFun :: Net String
+helpFun = do
+    botName' <- asks botName
+    return $ intercalate "\n\n" [helpIntro botName', helpCommands, helpHelp botName',
                                        helpQ, helpQAdv, helpPlay, helpCountry, helpExtra, helpBot, helpIss]
 
-helpFunShort :: String -> String
-helpFunShort botName' =
- "◉ :arrow_forward: To play a song: !q <youtube.com link> (now accepts youtu.be !)\n\
- \◉ Use !help @" ++ botName' ++ " for more options ('tab' will auto-complete)"
+helpFunShort :: Net String
+helpFunShort = do
+    botName' <- asks botName
+    return $  "◉ :arrow_forward: To play a song: !q <youtube.com link> (now accepts youtu.be !)\n\
+    \◉ Use !help @" ++ botName' ++ " for more options ('tab' will auto-complete)"
 

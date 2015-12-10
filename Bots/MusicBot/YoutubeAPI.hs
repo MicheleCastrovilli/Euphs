@@ -1,33 +1,34 @@
 module YoutubeAPI where
 
 import qualified Data.Aeson as J
-import Control.Monad
-import Control.Retry
+import           Control.Monad
+import           Control.Retry
 
-import Data.List.Split
-import Data.List (stripPrefix, isInfixOf, isSuffixOf)
-import Data.Char (isAlphaNum, isNumber)
-import Data.Maybe (fromMaybe)
-import Text.Parsec
+import           Data.List.Split
+import           Data.List (stripPrefix, isInfixOf, isSuffixOf)
+import           Data.Char (isAlphaNum, isNumber)
+import           Data.Maybe (fromMaybe)
+import           Text.Parsec
 import qualified Control.Applicative as A ((<|>))
+import           Safe
 
-import Network.URI
+import           Network.URI
 import qualified Network.Http.Client as H
 import qualified Data.ByteString.Char8 as B
 
-import Euphs.Easy
-import Euphs.Types (UserData)
+import           Euphs.Easy
+import           Euphs.Types (UserData)
 
-import Utils
-import Types
+import           Utils
+import           Types
 
 ------------------------------  BOT   TIME ------------------------------
-
-main :: IO ()
-main = easyBot [("!test", (testFun, "A test function", "This should explain more, but doesn't."))]
-
-testFun s = return $ unlines $ map (\x -> maybe ("Couldn't parse the link: " ++ x) show $ parseRequest x) $ words s
-
+--
+--main :: IO ()
+--main = easyBot [("!test", (testFun, "A test function", "This should explain more, but doesn't."))]
+--
+--testFun s = return $ unlines $ map (\x -> maybe ("Couldn't parse the link: " ++ x) show $ parseRequest x) $ words s
+--
 ------------------------------ END BOT TIME ------------------------------
 
 limitedBackoff :: RetryPolicy
@@ -121,7 +122,7 @@ parseTimeQuery s =
 
 -- | Auxiliary function, for converting the query URI, into a lookup list
 queryTable :: String -> [(String, Maybe String)]
-queryTable s = map (\x -> let y = splitOn "=" x in (head y, safeHead $ drop 1 y)) $ wordsBy (`elem` "?&") s
+queryTable s = map (\x -> let y = splitOn "=" x in (head y, headMay $ drop 1 y)) $ wordsBy (`elem` "?&") s
 
 -- | Auxiliary guard, to check if an ID is valid.
 guardId :: (MonadPlus m) => String -> m ()

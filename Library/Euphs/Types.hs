@@ -19,7 +19,13 @@ data UserData = UserData { userID     :: String -- ^ ID of the user
                          , isStaff    :: Bool   -- ^ Whether the session, is a member of the staff
                          , isManager  :: Bool   -- ^ Whether the session, is a manager of the room
                          }
-      deriving (Eq,Show, Read)
+      deriving (Show, Read)
+
+instance Eq UserData where
+    x == y = (userID x) == (userID y)
+
+instance Ord UserData where
+    compare x y = compare (userID x) (userID y)
 
 -- | Structure representing a Message incoming from the server.
 data MessageData = MessageData { timeRecieved :: Integer --

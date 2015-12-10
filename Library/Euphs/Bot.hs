@@ -19,6 +19,7 @@ module Euphs.Bot (
   , sendPacket
   , getBotConfig
   , tellLog
+  , sendReply
 ) where
 
 import qualified Network.WebSockets          as WS
@@ -155,7 +156,7 @@ botMain o h han started closing c =
                 evtQ <- atomically newTQueue
                 let pw = drop 1 $ L.dropWhile (/= '-') $ roomList o
                 let maybePw = if null pw then Nothing else Just pw
-                let thisBot = Bot c counter userVar (roomList o) (Euphs.Options.nick o) started h threadVar han evtQ maybePw closing
+                let thisBot = Bot c counter userVar (roomList o) (botNick o) started h threadVar han evtQ maybePw closing
                 runReaderT botLoop thisBot
                 return thisBot
 
@@ -205,7 +206,7 @@ botQueue = do
                                                             "!ping" : x : _ -> when (x == "@" ++ thisName) (sendPong m)
                                                             ["!ping"] -> sendPong m
                                                             "!uptime" : x : _ -> when (x == "@" ++ thisName)
-                                                                $ getUptimeReply >>= \reply -> void $ sendPacket $ Send reply $ msgID m
+                                                                $ getUptimeReply >>= \reply -> void $ sendReply m reply
                                                             ["!help"] -> sendMaybeHelp m [] $ helpShortHook fun
                                                             "!help" : x : y  -> when (x == "@" ++ thisName) $ sendMaybeHelp m y $ helpLongHook fun
                                                             _ -> eventsHook fun p
@@ -220,8 +221,8 @@ botQueue = do
                  isReply NickReply{} = True
                  isReply AuthReply{} = True
                  isReply _ = False
-                 sendPong x = void $ sendPacket $ Send "Pong!" (msgID x)
-                 sendMaybeHelp m l = maybe (return ()) (\x -> x l >>= (void . sendPacket . flip Send (msgID m)))
+                 sendPong x = void $ sendReply x "Pong!"
+                 sendMaybeHelp m l = maybe (return ()) (\x -> x l >>= (void . sendReply m))
 
 forkBot :: Net () -> Net ()
 forkBot act = do
@@ -299,3 +300,7 @@ getBotConfig o =
 -- | Empty bot
 emptyBot :: BotFunctions
 emptyBot = BotFunctions (\_ -> return ()) Nothing Nothing Nothing
+
+-- | Convenience function for sendPacket $ Send str (msgID m)
+sendReply :: MessageData -> String -> Net EuphEvent
+sendReply m str = sendPacket $ Send str $ msgID m

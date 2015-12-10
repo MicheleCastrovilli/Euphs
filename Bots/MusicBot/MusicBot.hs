@@ -8,29 +8,60 @@ import           Euphs.Events
 import           Euphs.Types
 import           Euphs.Commands
 import           Euphs.Options
+
 import           YoutubeAPI
+import           Types
+import           Help
+import           Utils
 
 import qualified Data.Aeson as J
+import qualified Data.Sequence as SQ
+import qualified Data.Set as S
+import           Data.Char (toLower)
+import           Data.List (isPrefixOf)
+import           Data.Maybe (fromMaybe)
+import           Safe
+
+import           Control.Monad.Trans.Class (lift, MonadTrans)
+import           Control.Monad.IO.Class (liftIO, MonadIO)
+import           Control.Monad.Reader (ReaderT, runReaderT, asks, ask)
+import           Control.Monad (void)
+
+import           Control.Concurrent.STM
+import           Control.Exception (catch, SomeException)
+
+type MusicBot = ReaderT MusicState Net
+
+liftNet :: (MonadTrans t, Monad m) => m a -> t m a
+liftNet = lift
+
+io :: (MonadIO m) => IO a -> m a
+io = liftIO
 
 main :: IO ()
 main = do
-    opts <- getOpts (defaults { config = "MusicBot.yaml" }) options
+    opts <- getOpts (defaults { config = "MusicBot.yaml"
+                        , botNick = "♪|HeliumDJBot"
+                        , roomList = "music"}) options
     config <- getBotConfig opts :: IO (Maybe MConfig)
-    musicBot <- makeBot config
-    botWithOpts musicBot opts
+    case config of
+        Nothing -> putStrLn "Error on reading config file"
+        Just conf -> makeBot conf opts >>= (flip botWithOpts opts)
 
-makeBot :: MConfig -> Opts ->  IO MusicState
-makeBot config opts =
+makeBot :: MConfig -> Opts ->  IO BotFunctions
+makeBot config opts = do
     let room = takeWhile (/='-') (roomList opts)
-    do !prevQueue <- catch (readFile $ roomQueue room) (\(SomeException _) -> return "")
-    let x = maybe SQ.empty maybeRead2 prevQueue :: Maybe YTQueue
-    lpv <- newTVar SQ.empty
-    let ms = MusicState x lpv config
+    !prevQueue <- catch (readFile $ roomQueue room) (\x -> const (return "") (x :: SomeException))
+    let !x = fromMaybe SQ.empty $ maybeRead prevQueue :: Queue
+    qv  <- atomically $ newTVar x
+    lpv <- atomically $ newTVar SQ.empty
+    who <- atomically $ newTVar S.empty
+    let ms = MusicState qv lpv config who
     return $ BotFunctions {
             eventsHook = musicHook ms
-          , dcHook = Just $ cleanUp room ms
-          , helpShortHook = Just helpFunShort
-          , helpLongHook = Just helpFun
+        ,   dcHook = Just $ cleanUp room ms
+        ,   helpShortHook = Just $ const helpFunShort
+        ,   helpLongHook = Just $ const helpFun
         }
 
 cleanUp :: String -> MusicState -> IO ()
@@ -38,45 +69,118 @@ cleanUp r ms = do
                saveQueue <- atomically $ readTVar $ queue ms
                writeFile (roomQueue r) $ show saveQueue
 
-musicLoop :: MusicState -> Net ()
-musicLoop ms = do return ()
-                  --stuff
-
 musicHook :: MusicState -> EuphEvent -> Net ()
-musicHook ms (SendEvent msg) =
-musicHook ms s@SnapshotEvent{} =
+musicHook ms (SendEvent msg) = runReaderT (musicCommand msg) ms
+musicHook ms s@SnapshotEvent{} = runReaderT (musicInit >> musicLoop) ms
 musicHook ms _ = return ()
+
+musicInit :: MusicBot ()
+musicInit = return ()
+
+musicLoop :: MusicBot ()
+musicLoop = do return ()
+                  --stuff
+musicCommand :: MessageData -> MusicBot ()
+musicCommand msg = matchCommand msg >> matchPlay msg
+
+matchCommand :: MessageData ->  MusicBot ()
+matchCommand md = maybe (return ()) (flip ($) md . snd) $ headMay $ filter (\(test,_) -> test md) commandList
+
+commandList :: [(MessageData -> Bool , MessageData -> MusicBot ())]
+commandList = [] ++ map (\(x,y) -> (x . contentMsg, y)) textCommands
+
+textCommands :: [(String -> Bool, MessageData -> MusicBot ())]
+textCommands =
+    map (\(x, x',y) -> (\z -> and (zipWith (==) z x') && length z >= length x, y)) nonCasePrefix ++
+    map (\(x,y) -> (flip isPrefixOf x . map toLower, y)) nonCasePrefixOnly ++
+    map (\(x,y) -> ((\z -> maybe False (==x) (fmap (map toLower) $ headMay $ words z)), y)) nonCase ++
+    map (\(x,y) -> ((\z -> maybe False (==z) (headMay $ words z)), y)) exactWord
+
+nonCasePrefix :: [(String,String, MessageData -> MusicBot ())]
+nonCasePrefix =
+    [ dup "!dramaticskip" dSkip
+    , dup "!dskip" dSkip
+    , ("!dumpq", "!dumpqueue", dumpQ)
+    , ("!queuef", "!queuefirst", queueFirst)
+    , ("!restr", "!restricted" , restrict)
+    , ("!restr", "!restrictions" , restrict)
+    , ("!allow", "!allowed" , allow)
+    , ("!sub", "!substitute" , substitute)
+    , ("!rep", "!replace" , substitute)
+    , ("!ins", "!insert" , insert)
+    , ("!del", "!delete" , delete)
+    , ("!rem", "!remove" , delete)
+    ]
+
+nonCasePrefixOnly :: [(String, MessageData -> MusicBot ())]
+nonCasePrefixOnly =
+    [ ("!qf", queueFirst)
+    , ("!q", queueSong)
+    , ("!skip", skip)
+    ]
+
+nonCase :: [(String, MessageData -> MusicBot ())]
+nonCase =
+    [ ("!dramaticskip", dSkip)
+    , ("!dskip", dSkip)
+    , ("!rm", delete)
+    , ("!list", list)
+    , ("!kill", list)
+    , ("!nls", neonLights)
+    , ("!neonlightshow", neonLights)
+    , ("!switch", swap)
+    , ("!swap", swap)
+    ]
+
+exactWord :: [(String, MessageData -> MusicBot ())]
+exactWord = []
+
+dSkip :: MessageData -> MusicBot ()
+dSkip x = lift $ void $ sendReply x "Skipped something, pretend"
+
+dumpQ :: MessageData -> MusicBot ()
+dumpQ x = lift $ void $ sendReply x "Dumped the queue, pretend"
+
+queueFirst :: MessageData -> MusicBot ()
+queueFirst x = lift $ void $ sendReply x "Queued thing first, pretend"
+
+queueSong :: MessageData -> MusicBot ()
+queueSong x = lift $ void $ sendReply x "Queued thing, pretend"
+
+restrict :: MessageData -> MusicBot ()
+restrict x = lift $ void $ sendReply x "Restricted, pretend"
+
+allow :: MessageData -> MusicBot ()
+allow x = lift $ void $ sendReply x "Allowed, pretend"
+
+substitute :: MessageData -> MusicBot ()
+substitute x = lift $ void $ sendReply x "Substitute, pretend"
+
+insert :: MessageData -> MusicBot ()
+insert x = lift $ void $ sendReply x "Insert, pretend"
+
+delete :: MessageData -> MusicBot ()
+delete x = lift $ void $ sendReply x "Delete, pretend"
+
+skip :: MessageData -> MusicBot ()
+skip x = lift $ void $ sendReply x "Skipped, pretend"
+
+list :: MessageData -> MusicBot ()
+list x = lift $ void $ sendReply x "List, pretend"
+
+swap :: MessageData -> MusicBot ()
+swap x = lift $ void $ sendReply x "Swap, pretend"
+
+neonLights :: MessageData -> MusicBot ()
+neonLights x = lift $ void $ sendReply x "Imagine an amazing lightshow here"
+
+matchPlay :: MessageData -> MusicBot ()
+matchPlay x = return ()
+
 
 {-ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
    = case (let z = words content in (map (map toLower) (take 1 z) ++ (drop 1 z))) of
-     (stripPrefix "!dramaticskip"  -> Just _) :_      -> dramaticSkip ytState botState
-     (stripPrefix "!dskip"         -> Just _) :_      -> dramaticSkip ytState botState
-     (stripPrefix "!dumpq"         -> Just _) :_      -> dumpQueue ytState botState mesgID
-     (stripPrefix "!queuefirst"    -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser 1
-     (stripPrefix "!restrict"      -> Just _) :x      -> showRestrictions ytState botState mesgID (fromMaybe "" $ safeHead x) False
-     (stripPrefix "!allowed"       -> Just _) :x      -> showRestrictions ytState botState mesgID (fromMaybe "" $ safeHead x) True
-     (stripPrefix "!qf"            -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser 1
-     (stripPrefix "!q"             -> Just r) :x      -> queueSongs (r:x) botState ytState mesgID sndUser (-1)
-     (stripPrefix "!sub"           -> Just _) :n:y:_  -> replaceSong botState ytState mesgID sndUser n y
-     (stripPrefix "!ins"           -> Just _) :n:x    -> insertSongs x botState ytState mesgID sndUser n
-     (stripPrefix "!del"           -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
-     (stripPrefix "!rem"           -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
-     (stripPrefix "!rm"            -> Just _) :n:x    -> deleteSongs botState ytState mesgID sndUser n $ fromMaybe "1" $ safeHead x
-     (stripPrefix "!list"          -> Just _) :x      -> listQueue ytState botState mesgID $ getOpts x
-     (stripPrefix "!skip"          -> Just _) :_      -> skipSong ytState
-     (stripPrefix "!kill"          -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState)) (sendPacket botState (Send "Bot is kill." mesgID) >> closeConnection botState True)
-     (stripPrefix "!neonlightshow" -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
-     (stripPrefix "!nls"           -> Just _) :_      -> getRandomLightShow >>= (\x -> sendPacket botState $ Send x mesgID)
-     (stripPrefix "!help"          -> Just _) :x:_    -> when (filter isAlphaNum x == filter isAlphaNum (botName botState))
-                                                         $ sendPacket botState $ Send ( helpFun $ botName botState ) mesgID
-     (stripPrefix "!help"          -> Just _) :_      -> sendPacket botState $ Send (helpFunShort $ botName botState) mesgID
-     (stripPrefix "!switch"        -> Just _) :x      -> switchSongs ytState botState mesgID x
-     (stripPrefix "!swap"          -> Just _) :x      -> switchSongs ytState botState mesgID x
-     (stripPrefix "!test"          -> Just r) :_      -> queueSongs [r] botState ytState mesgID sndUser (-1)
-
-      -(stripPrefix "!vsave"          -> Just _) :x:_    -> saveList botState ytState mesgID x
-      -(stripPrefix "!vload"          -> Just _) :x:_    -> loadList botState ytState mesgID x
      xs -> do
            let playLink = findPlay xs
            unless  ( null playLink ) (
@@ -145,9 +249,6 @@ waitSong ytState =
     case a of
       Just False -> waitSong ytState
       _ -> return ()
-
-maybeRead2 :: Read a => String -> Maybe a
-maybeRead2 = fmap fst . listToMaybe . filter (null . dropWhile isSpace . snd) . reads
 
 getWaitTimes :: YTQueue -> Integer -> SQ.Seq Integer
 getWaitTimes ytList currentWait = fmap (+ currentWait) $ SQ.scanl (\x y -> x + stopTime y - startTime y + restingTime) 0 ytList
