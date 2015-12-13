@@ -19,24 +19,16 @@ import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import           Data.Char (toLower)
 import           Data.List (isPrefixOf)
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Safe
 
-import           Control.Monad.Trans.Class (lift, MonadTrans)
+import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.Reader (ReaderT, runReaderT, asks, ask)
 import           Control.Monad (void)
 
 import           Control.Concurrent.STM
 import           Control.Exception (catch, SomeException)
-
-type MusicBot = ReaderT MusicState Net
-
-liftNet :: (MonadTrans t, Monad m) => m a -> t m a
-liftNet = lift
-
-io :: (MonadIO m) => IO a -> m a
-io = liftIO
 
 main :: IO ()
 main = do
@@ -51,7 +43,7 @@ main = do
 makeBot :: MConfig -> Opts ->  IO BotFunctions
 makeBot config opts = do
     let room = takeWhile (/='-') (roomList opts)
-    !prevQueue <- catch (readFile $ roomQueue room) (\x -> print (x :: SomeException) >> return "")
+    prevQueue <- catch (readFile $ roomQueue room) (\x -> print (x :: SomeException) >> return "")
     let !x = fromMaybe SQ.empty $ maybeRead prevQueue :: Queue
     qv  <- atomically $ newTVar x
     lpv <- atomically $ newTVar SQ.empty
@@ -93,10 +85,18 @@ commandList = [] ++ map (\(x,y) -> (x . contentMsg, y)) textCommands
 
 textCommands :: [(String -> Bool, MessageData -> MusicBot ())]
 textCommands =
-    map (\(x, x',y) -> (\z -> and (zipWith (==) z x') && length z >= length x, y)) nonCasePrefix ++
-    map (\(x,y) -> (isPrefixOf x . map toLower, y)) nonCasePrefixOnly ++
-    map (\(x,y) -> (maybe False ((==x) . map toLower) . headMay . words, y)) nonCase ++
-    map (\(x,y) -> ((\z -> maybe False (==z) (headMay $ words z)), y)) exactWord
+    map (applyWeird $ \x x' -> auxMay $ matchPrefixes x x') nonCasePrefix ++
+    map (applyFirst $ auxMay . allPrefixes) nonCasePrefixOnly ++
+    map (applyFirst $ auxMay . noCase) nonCase ++
+    map (applyFirst $ auxMay . exactCase) exactWord
+        where applyWeird f (x,x',y) = (f x x', y)
+              applyFirst f (x,y) = (f x,y)
+              firstWord x = headMay $ words x
+              auxMay f x = maybe False f $ firstWord x
+              exactCase x y = x == y
+              noCase x y = x == map toLower y
+              allPrefixes x y = isPrefixOf x $ map toLower y
+              matchPrefixes x y z = and (zipWith (==) z y) && length z >= length x
 
 nonCasePrefix :: [(String,String, MessageData -> MusicBot ())]
 nonCasePrefix =
@@ -177,13 +177,20 @@ swap x = lift $ void $ sendReply x "Swap, pretend"
 neonLights :: MessageData -> MusicBot ()
 neonLights x = lift $ void $ sendReply x "Imagine an amazing lightshow here"
 
-testCommand :: MessageData -> MusicBot ()
-testCommand x = (io $ putStrLn $ show $ map (\(y,z) -> y x) commandList) >> (lift $ void $ sendReply x "Help")
-
-
 matchPlay :: MessageData -> MusicBot ()
-matchPlay x = return ()
+matchPlay x = do
+    p <- parsePlay (contentMsg x)
+    case p of
+        Nothing -> return ()
+        Just video -> handlePlay video
 
+handlePlay :: YTResult -> MusicBot ()
+handlePlay v = return ()
+
+parsePlay :: String -> MusicBot (Maybe YTResult)
+parsePlay str = case headMay $ mapMaybe parseRequest $ words str of
+                    Nothing -> return Nothing
+                    Just req -> Just <$> retrieveYoutube (youtubeID req)
 
 {-ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
@@ -578,4 +585,3 @@ tagFunction ts botState (SendEvent message) =
 tagFunction _ _ _ = return ()
 
 -}
-

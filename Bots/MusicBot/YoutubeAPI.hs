@@ -1,15 +1,19 @@
+{-# LANGUAGE OverloadedStrings #-}
 module YoutubeAPI where
 
 import qualified Data.Aeson as J
+import           Text.Parsec
+
 import           Control.Monad
 import           Control.Retry
+import           Control.Monad.Reader (MonadReader, asks, ask)
+import           Control.Monad.IO.Class (MonadIO)
+import qualified Control.Applicative as A ((<|>))
 
 import           Data.List.Split
 import           Data.List (stripPrefix, isInfixOf, isSuffixOf)
 import           Data.Char (isAlphaNum, isNumber)
 import           Data.Maybe (fromMaybe)
-import           Text.Parsec
-import qualified Control.Applicative as A ((<|>))
 import           Safe
 
 import           Network.URI
@@ -43,14 +47,14 @@ apiToken :: String -> String
 apiToken apiKeyStr = "&key=" ++ apiKeyStr
 
 -- | Parsing a request from a link
-parseRequest :: String -> Maybe YTRequest
+parseRequest :: String -> Maybe YoutubeRequest
 parseRequest request = do
     uri <- parseURI request A.<|> (parseURIReference $ "//" ++ request)
     uriAuth <- uriAuthority uri
     parseGoogle uri uriAuth A.<|> parseYoutube uri uriAuth
 
 -- | Parsing a google referral link
-parseGoogle :: URI -> URIAuth -> Maybe YTRequest
+parseGoogle :: URI -> URIAuth -> Maybe YoutubeRequest
 parseGoogle uri uriAuth = do
     guard $ isInfixOf "google" $ uriRegName uriAuth
     guard $ (== "/url") $ uriPath uri
@@ -61,11 +65,11 @@ parseGoogle uri uriAuth = do
     parseYoutube uri' uriAuth'
 
 -- | Convenience function, to parse both the youtube.com and youtu.be link
-parseYoutube :: URI -> URIAuth -> Maybe YTRequest
+parseYoutube :: URI -> URIAuth -> Maybe YoutubeRequest
 parseYoutube uri uriAuth = parseYoutubeInternal uri uriAuth A.<|> parseYoutubeShort uri uriAuth
 
 -- | Function to parse exclusively the youtube.com link
-parseYoutubeInternal :: URI -> URIAuth -> Maybe YTRequest
+parseYoutubeInternal :: URI -> URIAuth -> Maybe YoutubeRequest
 parseYoutubeInternal uri uriAuth = do
     guard $ (isSuffixOf "youtube.com") $ uriRegName uriAuth
     guard $ (== "/watch") $ uriPath uri
@@ -73,16 +77,16 @@ parseYoutubeInternal uri uriAuth = do
     ytid <- join $ lookup "v" qt
     guardId ytid
     let (timeStart, timeEnd) = parseTimes qt
-    return (ytid, timeStart, timeEnd)
+    return $ YoutubeRequest ytid timeStart timeEnd
 
 -- | Function to parse exclusively the youtu.be link
-parseYoutubeShort :: URI -> URIAuth -> Maybe YTRequest
+parseYoutubeShort :: URI -> URIAuth -> Maybe YoutubeRequest
 parseYoutubeShort uri uriAuth = do
     guard $ (isSuffixOf "youtu.be") $ uriRegName uriAuth
     let ytid = uriPath uri
     guardId ytid
     let (timeStart, timeEnd) = parseTimes $ queryTable $ uriQuery uri
-    return (ytid, timeStart, timeEnd)
+    return $ YoutubeRequest ytid timeStart timeEnd
 
 -- | Funciton to parse the time in the NhNmNs notation, providing an order to the two times
 parseTimes :: [(String , Maybe String)] -> (Maybe QueueTime, Maybe QueueTime)
@@ -122,25 +126,23 @@ parseTimeQuery s =
 
 -- | Auxiliary function, for converting the query URI, into a lookup list
 queryTable :: String -> [(String, Maybe String)]
-queryTable s = map (\x -> let y = splitOn "=" x in (head y, headMay $ drop 1 y)) $ wordsBy (`elem` "?&") s
+queryTable s = map (\x -> let y = splitOn "=" x in (head y, headMay $ drop 1 y)) $ wordsBy (`elem` ("?&" :: String)) s
 
 -- | Auxiliary guard, to check if an ID is valid.
 guardId :: (MonadPlus m) => String -> m ()
 guardId ytid = guard $ length ytid >=9 && all (\x -> isAlphaNum x || x == '-' || x == '_') ytid
 
 
-
-retrieveRequest :: MusicState ->
-                   YTRequest ->
-                   UserData ->
-                   IO [QueueItem]
-retrieveRequest ms (ytid, starttime, endtime) usr = do
-    y <- retrieveYoutube ms ytid
+retrieveItem :: YoutubeRequest ->
+                UserData ->
+                MusicBot [QueueItem]
+retrieveItem req usr = do
+    y <- retrieveYoutube $ youtubeID req
     let l = case y of
                 None -> []
                 One x -> [x]
                 Playlist p -> p
-    return $  fmap (\x -> QueueItem x usr (modify x starttime) $ modifyE x endtime) l
+    return $  fmap (\x -> QueueItem x usr (modify x $ startTimeReq req) $ modifyE x $ endTimeReq req) l
     where modify  x time = fromMaybe 0 $ do
                            t <- time
                            guard $ duration x < t
@@ -150,13 +152,20 @@ retrieveRequest ms (ytid, starttime, endtime) usr = do
                            guard $ duration x > t && t > 0
                            time
 
-retrieveYoutube :: MusicState ->
-                   YoutubeID ->
-                   IO YTResult
-retrieveYoutube ms ytId = do
-    let ak = apiKeyConf $ musicConfig ms
-    recoverAll limitedBackoff
-                $ H.get (B.pack $ apiUrl ++ ytId ++ apiToken ak)
-                    H.jsonHandler :: IO YTResult
+retrieveYoutube :: YoutubeID -> MusicBot YTResult
+retrieveYoutube ytId = do
+    config <- asks musicConfig
+    let ak = apiKeyConf config
+    io $ recoverAll limitedBackoff $  H.get
+        (B.pack $ apiUrl ++ ytId ++ apiToken ak) H.jsonHandler
 
-
+instance J.FromJSON YTResult where
+    parseJSON (J.Object v) = do
+        res <- v J..: "pageInfo" >>= (J..: "totalResults")
+        if (res :: Int) == 0 then
+            return None
+        else if res == 1 then
+            ((One . head) <$> v J..: "items")
+        else
+            Playlist <$> (v J..: "items")
+    parseJSON _ = fail "Couldn't parse the result"

@@ -1,17 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Types where
 
-import Control.Concurrent.STM (TVar, TMVar)
 import qualified Data.Aeson as J
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import Data.Maybe (fromMaybe)
 import Data.List (sort)
 import Data.Char (isNumber)
-import Euphs.Types (UserData)
+
 import Control.Applicative ((<|>))
+import Control.Concurrent.STM (TVar)
+import Control.Monad.Reader (ReaderT)
 
 import Utils
+
+import Euphs.Bot (Net)
+import Euphs.Types (UserData)
+
+
+type MusicBot = ReaderT MusicState Net
 
 data MConfig = MConfig {
     apiKeyConf :: String
@@ -26,10 +33,11 @@ instance J.FromJSON MConfig where
               <*> v J..: "stopped"
               <*> v J..:? "prevMemory" J..!= 50
               <*> v J..:? "rest" J..!=6
+    parseJSON _ = fail "Error in parsing the config file"
 
 data MusicState = MusicState {
     queue         :: TVar Queue
-  , previousQueue :: TVar Queue
+  , previousQueue :: TVar Queued
   , musicConfig   :: MConfig
   , peopleList    :: TVar People
 }
@@ -64,6 +72,7 @@ data QueuedItem = QueuedItem {
   }
 
 type Queue = SQ.Seq QueueItem
+type Queued = SQ.Seq QueuedItem
 
 roomQueue :: String -> String
 roomQueue r = r ++ "-queue"
@@ -71,7 +80,6 @@ roomQueue r = r ++ "-queue"
 -------------------------- YOUTUBE DATA TYPES
 
 type YoutubeID = String
-type YTRequest = (YoutubeID, Maybe QueueTime, Maybe QueueTime)
 
 data YoutubeRequest = YoutubeRequest {
     youtubeID :: YoutubeID
@@ -102,16 +110,6 @@ instance J.FromJSON YTMetadata where
             <*> ((ytl J..: "contentDetails" >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return [])
         return $ balanceAllowed res
     parseJSON _ = fail "Couldn't parse API"
-
-instance J.FromJSON YTResult where
-    parseJSON (J.Object v) = do
-        res <- v J..: "pageInfo" >>= (J..: "totalResults")
-        if (res :: Int) == 0 then
-            return None
-        else if res == 1 then
-            ((One . head) <$> v J..: "items")
-        else
-            Playlist <$> (v J..: "items")
 
 parseISO8601 :: String -> Int
 parseISO8601 x =

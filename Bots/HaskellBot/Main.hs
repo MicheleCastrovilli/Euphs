@@ -25,6 +25,9 @@ import           Data.List
 import           Control.Monad.Trans  (liftIO, MonadIO)
 import           Control.Monad.Reader (asks)
 
+import Text.Read.Lex
+import Text.ParserCombinators.ReadP
+
 io :: (MonadIO m) => IO a -> m a
 io = liftIO
 
@@ -124,7 +127,14 @@ muevalFunction (SendEvent message) =
                           Just x -> do
                               y <- io $ readProcess' "mueval"
                                 ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-e", x ] []
-                              let y' = fromMaybe y (maybeRead y)
+                              let y' = parse y
+                              void $ sendPacket $ Send (concatMap format y') $ msgID message
+      "!hastype" : _ -> case stripPrefix "!hastype" $ contentMsg message of
+                          Nothing -> return ()
+                          Just x -> do
+                              y <- io $ readProcess' "mueval"
+                                ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs","-T","-i","-e", x ] []
+                              let y' = parse y
                               void $ sendPacket $ Send (concatMap format y') $ msgID message
       "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
                           Nothing -> return ()
@@ -182,3 +192,11 @@ format c = [c]
 
 maybeRead :: Read a => String -> Maybe a
 maybeRead = fmap fst . listToMaybe . filter (null . dropWhile isSpace . snd) . reads
+
+parse :: String -> String
+parse str = let y = escape str in fromMaybe y $ maybeRead y
+
+escape xs
+    | []      <- r = []
+    | [(a,_)] <- r = a
+    where r = readP_to_S (manyTill lexChar eof) xs
