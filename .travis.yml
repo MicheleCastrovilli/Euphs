@@ -15,19 +15,11 @@ install:
  - cabal --version
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - travis_retry cabal update
+ - cd Library
  - cabal install --only-dependencies --enable-tests --enable-benchmarks
 
 script:
  - cd Library
- - if [ -f configure.ac ]; then autoreconf -i; fi
- - cabal configure --enable-tests --enable-benchmarks -v2
- - cabal build
- - cabal test
- - cabal check
- - cabal sdist
- - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz &&
-   (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
- - cd ../../Bots/MusicBot
  - if [ -f configure.ac ]; then autoreconf -i; fi
  - cabal configure --enable-tests --enable-benchmarks -v2
  - cabal build
