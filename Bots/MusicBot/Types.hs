@@ -99,6 +99,17 @@ data YTMetadata = YTMetadata {
 
 data YTResult = One YTMetadata | None | Playlist [YTMetadata]
 
+instance J.FromJSON YTResult where
+    parseJSON (J.Object v) = do
+        res <- v J..: "pageInfo" >>= (J..: "totalResults")
+        if (res :: Int) == 0 then
+            return None
+        else if res == 1 then
+            ((One . head) <$> v J..: "items")
+        else
+            Playlist <$> (v J..: "items")
+    parseJSON _ = fail "Couldn't parse the result"
+
 instance J.FromJSON YTMetadata where
     parseJSON (J.Object ytl) = do
         res <- YTMetadata <$> (ytl J..: "id")

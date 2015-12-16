@@ -158,14 +158,3 @@ retrieveYoutube ytId = do
     let ak = apiKeyConf config
     io $ recoverAll limitedBackoff $  H.get
         (B.pack $ apiUrl ++ ytId ++ apiToken ak) H.jsonHandler
-
-instance J.FromJSON YTResult where
-    parseJSON (J.Object v) = do
-        res <- v J..: "pageInfo" >>= (J..: "totalResults")
-        if (res :: Int) == 0 then
-            return None
-        else if res == 1 then
-            ((One . head) <$> v J..: "items")
-        else
-            Playlist <$> (v J..: "items")
-    parseJSON _ = fail "Couldn't parse the result"

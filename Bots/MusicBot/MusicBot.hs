@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
-module MusicBot where
+module Main where
 
 import           Euphs.Bot
 import           Euphs.Events
@@ -18,7 +18,7 @@ import qualified Data.Aeson as J
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import           Data.Char (toLower)
-import           Data.List (isPrefixOf)
+import           Data.List (isPrefixOf, isSuffixOf)
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Safe
 
@@ -63,15 +63,15 @@ cleanUp r ms = do
 
 musicHook :: MusicState -> EuphEvent -> Net ()
 musicHook ms (SendEvent msg) = runReaderT (musicCommand msg) ms
-musicHook ms s@SnapshotEvent{} = runReaderT (musicInit >> musicLoop) ms
+musicHook ms s@SnapshotEvent{} = runReaderT (musicInit s >> musicLoop) ms
 musicHook ms _ = return ()
 
-musicInit :: MusicBot ()
-musicInit = return ()
+musicInit :: EuphEvent -> MusicBot ()
+musicInit s = return ()
 
 musicLoop :: MusicBot ()
 musicLoop = do return ()
-                  --stuff
+
 musicCommand :: MessageData -> MusicBot ()
 musicCommand msg = matchCommand msg >> matchPlay msg
 
@@ -188,7 +188,7 @@ handlePlay :: YTResult -> MusicBot ()
 handlePlay v = return ()
 
 parsePlay :: String -> MusicBot (Maybe YTResult)
-parsePlay str = case headMay $ mapMaybe parseRequest $ words str of
+parsePlay str = case headMay $ mapMaybe parseRequest $ drop 1 $ dropWhile (not . isSuffixOf "!play") $ words str of
                     Nothing -> return Nothing
                     Just req -> Just <$> retrieveYoutube (youtubeID req)
 

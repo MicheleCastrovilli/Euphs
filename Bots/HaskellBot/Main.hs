@@ -103,7 +103,7 @@ myFun x = tellLog $ T.pack $ show x
 --
 
 muevalBot = emptyBot {
-    eventsHook = muevalFunction
+    eventsHook = myFun
   , helpShortHook = Just $ const shortHelp
   , helpLongHook = Just $ const longHelp
 }

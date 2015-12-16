@@ -21,3 +21,7 @@ openFile
 tmpQueue
 report.html
 *-queue
+
+### Floobits ###
+.floo
+.flooignore

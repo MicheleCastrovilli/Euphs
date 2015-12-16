@@ -1,43 +1,33 @@
-EuPhBot
+Euphs
 =========
 
-[![Build Status](https://travis-ci.org/MicheleCastrovilli/Euphs.svg?branch=master)] (https://travis-ci.org/MicheleCastrovilli/EuPhBot)
+[![Build Status](https://travis-ci.org/MicheleCastrovilli/Euphs.svg?branch=master)] (https://travis-ci.org/MicheleCastrovilli/Euphs)
 
 A simple bot framework for the euphoria.io platform.
 Implemented in Haskell.
 
-Not working yet. 
+Not working yet. Probably. 
 
 Current TODO:
-  * [x] Refactoring
-  * [x] Implement some bot functions
-  * [ ] Find a way to implement a script of some kind
-  * [ ] Implement whole euphoria.io protocol
-
-
+  * [ ] Find a way to implement a script of some kind.
+  * [ ] Implement whole euphoria.io protocol.
+    * [ ] Implement account commands and events.
+    * [ ] Implement partition event.
 
 DJBot TODO:
-  * [x] Make commands react to both uppercase and lower case
-  * [x] Make it recognize also longer versions of the commands (e.g. !vqueuefirst)
-  * [x] Reject the video entirely if not embeddable
-  * [x] Add !vhelp also, instead of only !help @<botName>
-  * [x] Make commands react also to only the command prefix
-  * [x] !vinsert or !vi , for inserting songs in the queue in any position
-  * [x] !vdelete or !vd , for deleting songs from the queue 
-  * [x] Announce if countries are banned from playing that song
-  * [x] Reword help to make it clearer that multiqueue is possible, also saying second generation of bots
-  * [ ] Take queue requests also when offline, so in the reconnecting phase
-  * [ ] Add some inter-room function
-    * [ ] Split the queue control, and the queue play bot functions
-    * [ ] Also re-unite the bots
-  * [ ] Expanding into multiple modes, like party or event mode
-    * [ ] Also add protection from misuse, maybe a !vundo 
-    * [ ] Blind titles for show/event mode
-    * [ ] Possibility for locking/unlocking the queue to the event host
-    * [ ] Various verbosity levels
-  * [x] Allow ytid only !vq or !vqf
-  * [ ] Add optional flag to !vlist to show only video titles, without the playing
-    * [x] Add also flag to list titles with full video links (with no playing)
-  * [ ] Integrate it better with SongMaster
-  * [ ] Make it accept the NeonDJBot commands (without the v), if the other DJ is not present
-    * [x] Made it so it accepts only the without v commands
+  * [ ] Rewrite it all.
+    * [ ] All the previous features.
+  * [ ] Add Playlist queueing.
+  * [ ] Implement Tagging.
+    * [ ] System to access tagging database remotely.
+    * [ ] Implement some kind of RESTful API.
+  * [ ] Add security measures.
+    * [ ] Possible quota for videos.
+    * [ ] Counteract spamming.
+    * [ ] Lockdown mode.
+      * [ ] Staff only.
+      * [ ] Music mods.
+      * [ ] Music helpers.
+  * [ ] Possible help on auto tagging.
+    * [ ] Using euphoria format to provide a easy response.
+  
