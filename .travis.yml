@@ -1,7 +1,6 @@
+language: c
 sudo: false
 
-env:
- - CABALVER=1.22 GHCVER=7.10.1
 matrix:
   include:
     - env: CABALVER=1.22 GHCVER=7.10.1
