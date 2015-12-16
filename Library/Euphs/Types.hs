@@ -21,9 +21,11 @@ data UserData = UserData { userID     :: String -- ^ ID of the user
                          }
       deriving (Show, Read)
 
+-- | Instance for Eq, based on the agentID
 instance Eq UserData where
     x == y = (userID x) == (userID y)
 
+-- | Instance for Eq, based on the agentID
 instance Ord UserData where
     compare x y = compare (userID x) (userID y)
 

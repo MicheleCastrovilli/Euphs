@@ -176,6 +176,7 @@ botLoop = do
           _ <- io $ installHandler keyboardSignal (Catch $ atomically $ writeTChan closing ()) Nothing
           void $ io $ atomically $ readTChan closing
 
+-- | Logging information to the log handle.
 tellLog :: T.Text -> Net ()
 tellLog text = do
                sT <- asks startTime

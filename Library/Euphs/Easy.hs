@@ -1,4 +1,6 @@
-module Euphs.Easy where
+-- | An Easier way of making a bot, that has basic needs, like an exact word match for the command,
+-- | and providing an easy way to also have an auto generated help.
+module Euphs.Easy (easyBot, EasyBotFun, Command, ShortHelp, LongHelp, EasyFun) where
 
 import Data.List (intercalate)
 import Control.Monad (void)
@@ -9,13 +11,18 @@ import Euphs.Events
 import Euphs.Commands
 import Euphs.Types
 
+-- | A '!command' string, to define the trigger of the action.
 type Command = String
+-- | Short help about the command implemented
 type ShortHelp = String
+-- | Long help about the command implemented
 type LongHelp = String
+-- | A function with the rest of the command as input, and the output as a direct reply.
 type EasyFun = String -> Net String
-
+-- | A structure for defining a command.
 type EasyBotFun = (Command,(EasyFun, ShortHelp, LongHelp))
 
+-- | The main function call.
 easyBot :: [EasyBotFun] -> IO ()
 easyBot f = bot emptyBot {
                  eventsHook = easyFun f

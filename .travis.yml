@@ -19,7 +19,6 @@ install:
  - cabal install --only-dependencies --enable-tests --enable-benchmarks
 
 script:
- - cd Library
  - if [ -f configure.ac ]; then autoreconf -i; fi
  - cabal configure --enable-tests --enable-benchmarks -v2
  - cabal build
