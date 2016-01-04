@@ -1,18 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 module Types where
 
 import qualified Data.Aeson as J
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
+
 import Data.Maybe (fromMaybe)
 import Data.List (sort)
 import Data.Char (isNumber)
+import Data.Function (on)
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.STM (TVar)
 import Control.Monad.Reader (ReaderT)
 
 import Utils
+import Countries
 
 import Euphs.Bot (Net)
 import Euphs.Types (UserData)
@@ -21,10 +25,10 @@ import Euphs.Types (UserData)
 type MusicBot = ReaderT MusicState Net
 
 data MConfig = MConfig {
-    apiKeyConf :: String
-  , stopped    :: Bool
-  , sequenceMemory :: Int
-  , restingTime :: Int
+    apiKeyConf :: !String
+  , stopped    :: !Bool
+  , sequenceMemory :: !Int
+  , restingTime :: !Int
 } deriving (Show)
 
 instance J.FromJSON MConfig where
@@ -38,37 +42,36 @@ instance J.FromJSON MConfig where
 data MusicState = MusicState {
     queue         :: TVar Queue
   , previousQueue :: TVar Queued
-  , musicConfig   :: MConfig
+  , musicConfig   :: !MConfig
   , peopleList    :: TVar People
 }
 
 data User = User {
-    ud :: UserData
-  , c  :: Country
+    userData     :: UserData
+  , userCountry  :: Maybe Country
 }
 
 instance Eq User where
-    x == y = ud x == ud y
+    (==) = (==) `on` userData
 
 instance Ord User where
-    compare x y = compare (ud x) (ud y)
+    compare = compare `on` userData
 
 type People = S.Set User
-type Country = String
 
 type Requester = UserData
 type QueueTime = Int
 
 data QueueItem = QueueItem {
-    metadata  :: YTMetadata
-  , requester :: Requester
-  , startTime :: QueueTime
-  , stopTime  :: QueueTime
+    metadata  :: !YTMetadata
+  , requester :: !Requester
+  , startTime :: !QueueTime
+  , stopTime  :: !QueueTime
   } deriving (Show,Read)
 
 data QueuedItem = QueuedItem {
-    item :: QueueItem
-  , timePlayed :: Integer
+    item :: !QueueItem
+  , timePlayed :: !Integer
   }
 
 type Queue = SQ.Seq QueueItem
@@ -149,22 +152,3 @@ balanceAllowed yt
             }
     | otherwise = yt { allowed = S.toAscList countries }
 
-countries :: S.Set String
-countries = S.fromAscList
-             ["AD","AE","AF","AG","AI","AL","AM","AO","AQ","AR","AS","AT","AU","AW","AX",
-              "AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BL","BM","BN","BO","BR",
-              "BS","BT","BV","BW","BY","BZ","CA","CC","CD","CF","CG","CH","CI","CK","CL",
-              "CM","CN","CO","CR","CU","CV","CX","CY","CZ","DE","DJ","DK","DM","DO","DZ",
-              "EC","EE","EG","EH","ER","ES","ET","FI","FJ","FK","FM","FO","FR","GA","GB",
-              "GD","GE","GF","GG","GH","GI","GL","GM","GN","GP","GQ","GR","GS","GT","GU",
-              "GW","GY","HK","HM","HN","HR","HT","HU","ID","IE","IL","IM","IN","IO","IQ",
-              "IR","IS","IT","JE","JM","JO","JP","KE","KG","KH","KI","KM","KN","KP","KR",
-              "KW","KY","KZ","LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA",
-              "MC","MD","ME","MF","MG","MH","MK","ML","MM","MN","MO","MP","MQ","MR","MS",
-              "MT","MU","MV","MW","MX","MY","MZ","NA","NC","NE","NF","NG","NI","NL","NO",
-              "NP","NR","NU","NZ","OM","PA","PE","PF","PG","PH","PK","PL","PM","PN","PR",
-              "PS","PT","PW","PY","QA","RE","RO","RS","RU","RW","SA","SB","SC","SD","SE",
-              "SG","SH","SI","SJ","SK","SL","SM","SN","SO","SR","ST","SV","SY","SZ","TC",
-              "TD","TF","TG","TH","TJ","TK","TL","TM","TN","TO","TR","TT","TV","TW","TZ",
-              "UA","UG","UM","US","UY","UZ","VA","VC","VE","VG","VI","VN","VU","WF","WS",
-              "YE","YT","ZA","ZM","ZW"]

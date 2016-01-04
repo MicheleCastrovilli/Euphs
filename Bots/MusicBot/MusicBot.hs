@@ -227,14 +227,6 @@ ytFunction ytState botState se@(SnapshotEvent {}) =
 addToBack :: YTQueueItem -> SQ.Seq YTQueueItem -> SQ.Seq YTQueueItem
 addToBack yt sq = if length sq > sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
 
-
-filterLinks :: [String] -> [YTRequest]
-filterLinks = mapMaybe getYtReq
-
-findPlay :: [String] -> [YTRequest]
-findPlay xs = take 1 $ mapMaybe getYtReq $ dropWhile (/="!play") xs
-
-
 ytLoop :: BotState -> YTState -> IO ()
 ytLoop botState ytState = forever $ do
   waitSong ytState

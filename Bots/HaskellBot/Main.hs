@@ -55,53 +55,6 @@ myFun a@(SnapshotEvent _ _ _ _ _) = do
                                   tellLog $ T.pack $ stuff
 myFun x = tellLog $ T.pack $ show x
 
---fortuneFunction :: BotFunction
---fortuneFunction botState (SendEvent message)
---  = when (contentMsg message == "!fortune") $
---      do
---      a <- readProcess "fortune" ["-s"] []
---      putStrLn a
---      sendPacket botState $ Send a $ msgID message
---      return ()
---
---fortuneFunction _ _ = return ()
---
---data CountState = CountState (MVar Bool) (MVar Int)
---
---countFunction :: CountState -> BotFunction
---countFunction cs@(CountState up num) botState (SendEvent message)
---   =  case words (contentMsg message) of
---      "!upCount" : _ ->
---        do
---        prevUp <- takeMVar up
---        putMVar up True
---        sendPacket botState (Send (if prevUp then "It was already up!" else "Set to up") $ msgID message)
---      "!downCount" : _ ->
---        do
---        prevUp <- takeMVar up
---        putMVar up False
---        sendPacket botState (Send (if prevUp then "Set to down" else "It was already down!") $ msgID message)
---      "!count" : _ ->
---        do
---        prevNum <- takeMVar num
---        prevUp  <- takeMVar up
---        threadDelay 500000
---        putMVar up prevUp
---        let nextNum = if prevUp then prevNum + 1 else prevNum - 1
---        putMVar num nextNum
---        sendPacket botState $ Send (show nextNum) $ msgID message
---      "!gotoRoom" : x ->
---        closeConnection botState False >>
---         (euphoriaBot "CounterBot"  (head x) $ countFunction cs)
---      "!replicateTo" : x ->
---        euphoriaBot "CounterBot"  (head x) $ countFunction cs
---
---      _ -> return ()
---
---countFunction _ _ _ =
---      return ()
---
-
 muevalBot = emptyBot {
     eventsHook = muevalFunction
   , helpShortHook = Just $ const shortHelp
@@ -139,15 +92,15 @@ muevalFunction (SendEvent message) =
       "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> io (readProcess' "hoogle"
-                            ["search" ,"-d" ,
-                            "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
+                            ["search" ,
+                            --"-d" , "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
                             "-n", "3", "-i", x] []) >>=
                                 (\y -> void $ sendPacket $ Send y $ msgID message)
       "!hoogle"  : _ -> case stripPrefix "!hoogle" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> io (readProcess' "hoogle"
-                            ["search" ,"-d" ,
-                            "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
+                            ["search" ,
+                            --"-d" , "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
                             "-n", "3", x] []) >>=
                                 (\y -> void $ sendPacket $ Send y $ msgID message)
       _ -> return  ()
