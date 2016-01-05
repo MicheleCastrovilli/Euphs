@@ -1,13 +1,30 @@
 module Countries where
 
 import Data.Function (on)
-import Data.Map.Strict
 import qualified Data.Set as S
+import Text.Read
+import qualified Text.Read.Lex as L
+import Safe
 
 data Country = Country {
         countryCode :: String
     ,   countryName :: String
     }
+
+instance Show Country where
+    show (Country c _) = c
+
+showCountry :: Country -> String
+showCountry (Country c n) = c ++ " - " ++ n
+
+instance Read Country where
+    readPrec = parens
+      ( do L.Ident s  <- lexP
+           let i = S.intersection countries $ S.singleton $ Country s ""
+           case headMay $  S.toList i of
+               Nothing -> pfail
+               Just x -> return x
+      )
 
 instance Eq Country where
     (==) = (==) `on` countryCode
@@ -262,3 +279,6 @@ countries = S.fromAscList
     , Country "ZM" "Zambia"
     , Country "ZW" "Zimbabwe"
     ]
+
+toFakeCountry :: [String] -> S.Set Country
+toFakeCountry l = S.fromList $ map (flip Country "") l

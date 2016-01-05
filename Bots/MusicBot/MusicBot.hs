@@ -33,7 +33,7 @@ import           Control.Exception (catch, SomeException)
 main :: IO ()
 main = do
     opts <- getOpts (defaults { config = "MusicBot.yaml"
-                        , botNick = "♪|HeliumDJBot"
+                        , botNick = "♪|FakeDJ"
                         , roomList = "music"}) options
     config <- getBotConfig opts :: IO (Maybe MConfig)
     case config of

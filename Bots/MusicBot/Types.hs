@@ -96,8 +96,8 @@ data YTMetadata = YTMetadata {
   , thumbnailUrl :: String
   , duration :: Int
   , embeddable :: Bool
-  , restricted :: [String]
-  , allowed :: [String]
+  , restricted :: S.Set Country
+  , allowed :: S.Set Country
 } deriving (Show, Read)
 
 data YTResult = One YTMetadata | None | Playlist [YTMetadata]
@@ -120,8 +120,8 @@ instance J.FromJSON YTMetadata where
             <*> (ytl J..: "snippet" >>= (J..: "thumbnails") >>= (J..: "default") >>= (J..: "url"))
             <*> (parseISO8601 <$> (ytl J..: "contentDetails" >>= (J..: "duration")))
             <*> (ytl J..: "status" >>= (J..: "embeddable"))
-            <*> ((ytl J..: "contentDetails" >>= (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
-            <*> ((ytl J..: "contentDetails" >>=  (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return [])
+            <*> (fmap toFakeCountry $ (ytl J..: "contentDetails" >>= (J..: "regionRestriction") >>=  (J..: "blocked")) <|> return [])
+            <*> (fmap toFakeCountry $ (ytl J..: "contentDetails" >>= (J..: "regionRestriction") >>=  (J..: "allowed")) <|> return [])
         return $ balanceAllowed res
     parseJSON _ = fail "Couldn't parse API"
 
