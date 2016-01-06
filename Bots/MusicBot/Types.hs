@@ -7,7 +7,6 @@ import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 
 import Data.Maybe (fromMaybe)
-import Data.List (sort)
 import Data.Char (isNumber)
 import Data.Function (on)
 
@@ -101,6 +100,7 @@ data YTMetadata = YTMetadata {
 } deriving (Show, Read)
 
 data YTResult = One YTMetadata | None | Playlist [YTMetadata]
+    deriving (Show)
 
 instance J.FromJSON YTResult where
     parseJSON (J.Object v) = do
@@ -138,17 +138,13 @@ parseISO8601 x =
 
 balanceAllowed :: YTMetadata -> YTMetadata
 balanceAllowed yt
-    | not $ null $ restricted yt =
-        let restOrd = sort (restricted yt) in yt {
-              restricted = restOrd
-            , allowed = S.toAscList (S.difference countries
-                                    (S.fromAscList restOrd))
+    | not $ S.null $ restricted yt = yt {
+              restricted = S.intersection countries $ restricted yt
+            , allowed    = S.difference countries $ restricted yt
             }
-    | not $ null $ allowed yt =
-        let allowOrd = sort (allowed yt) in yt {
-              restricted = S.toAscList (S.difference countries
-                                       (S.fromAscList allowOrd))
-            , allowed = allowOrd
+    | not $ null $ allowed yt = yt {
+              restricted = S.difference countries $ allowed yt
+            , allowed    = S.intersection countries $ allowed yt
             }
-    | otherwise = yt { allowed = S.toAscList countries }
+    | otherwise = yt { allowed = countries }
 

@@ -3,8 +3,8 @@ module Help where
 import Euphs.Bot (Net, botName)
 
 import Control.Monad.Reader (asks)
-import Options.Applicative
-import Safe
+--import Options.Applicative
+--import Safe
 import Data.List
 
 helpIntro :: String  ->  String

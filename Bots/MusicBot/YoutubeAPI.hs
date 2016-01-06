@@ -1,18 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module YoutubeAPI where
 
-import qualified Data.Aeson as J
 import           Text.Parsec
 
 import           Control.Monad
 import           Control.Retry
-import           Control.Monad.Reader (MonadReader, asks, ask)
-import           Control.Monad.IO.Class (MonadIO)
 import qualified Control.Applicative as A ((<|>))
+import           Control.Monad.Reader (asks)
 
 import           Data.List.Split
-import           Data.List (stripPrefix, isInfixOf, isSuffixOf)
-import           Data.Char (isAlphaNum, isNumber)
+import           Data.List (isInfixOf, isSuffixOf)
+import           Data.Char (isAlphaNum)
 import           Data.Maybe (fromMaybe)
 import           Safe
 
@@ -20,7 +18,7 @@ import           Network.URI
 import qualified Network.Http.Client as H
 import qualified Data.ByteString.Char8 as B
 
-import           Euphs.Easy
+--import           Euphs.Easy
 import           Euphs.Types (UserData)
 
 import           Utils
@@ -36,7 +34,7 @@ import           Types
 ------------------------------ END BOT TIME ------------------------------
 
 limitedBackoff :: RetryPolicy
-limitedBackoff = exponentialBackoff 50 <> limitRetries 5
+limitedBackoff = exponentialBackoff 50 `mappend` limitRetries 5
 
 -- | Part of the URL for asking the youtube API
 apiUrl :: String
@@ -95,8 +93,8 @@ parseTimes q = let t1 = parseAux q "t"
                in  case (t1,t2) of
                      (Just m1, Just m2) -> if m1 > m2 then (Just m2,Just m1) else (Just m1,Just m2)
                      x -> x
-    where parseAux q par  = do
-            a <- join $ lookup par q
+    where parseAux q' par  = do
+            a <- join $ lookup par q'
             parseTimeQuery a
 
 -- | Auxiliary function for parsing the time
@@ -113,7 +111,7 @@ parseTimeQuery s =
             return (h*3600+m*60+s')
           aux' c = (do
             l <- many1 digit
-            char c
+            _ <- char c
             case (maybeRead l :: Maybe Int) of
                 Nothing -> fail "Integer out of Int boundaries"
                 Just x -> return x ) :: Parsec String () Int
@@ -156,5 +154,5 @@ retrieveYoutube :: YoutubeID -> MusicBot YTResult
 retrieveYoutube ytId = do
     config <- asks musicConfig
     let ak = apiKeyConf config
-    io $ recoverAll limitedBackoff $  H.get
+    io $ recoverAll limitedBackoff $  const $ H.get
         (B.pack $ apiUrl ++ ytId ++ apiToken ak) H.jsonHandler

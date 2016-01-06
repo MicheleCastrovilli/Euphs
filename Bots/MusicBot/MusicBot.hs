@@ -6,7 +6,7 @@ module Main where
 import           Euphs.Bot
 import           Euphs.Events
 import           Euphs.Types
-import           Euphs.Commands
+--import           Euphs.Commands
 import           Euphs.Options
 
 import           YoutubeAPI
@@ -14,17 +14,16 @@ import           Types
 import           Help
 import           Utils
 
-import qualified Data.Aeson as J
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import           Data.Char (toLower)
-import           Data.List (isPrefixOf, isSuffixOf)
+import           Data.List (sortBy, isPrefixOf, isSuffixOf)
 import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.Function (on)
 import           Safe
 
 import           Control.Monad.Trans.Class (lift)
-import           Control.Monad.IO.Class (liftIO, MonadIO)
-import           Control.Monad.Reader (ReaderT, runReaderT, asks, ask)
+import           Control.Monad.Reader (runReaderT, asks, ask)
 import           Control.Monad (void)
 
 import           Control.Concurrent.STM
@@ -34,21 +33,21 @@ main :: IO ()
 main = do
     opts <- getOpts (defaults { config = "MusicBot.yaml"
                         , botNick = "♪|FakeDJ"
-                        , roomList = "music"}) options
-    config <- getBotConfig opts :: IO (Maybe MConfig)
-    case config of
+                        , roomList = "haskell"}) options
+    config' <- getBotConfig opts :: IO (Maybe MConfig)
+    case config' of
         Nothing -> putStrLn "Error on reading config file"
         Just conf -> makeBot conf opts >>= (flip botWithOpts opts)
 
 makeBot :: MConfig -> Opts ->  IO BotFunctions
-makeBot config opts = do
+makeBot config' opts = do
     let room = takeWhile (/='-') (roomList opts)
     prevQueue <- catch (readFile $ roomQueue room) (\x -> print (x :: SomeException) >> return "")
     let !x = fromMaybe SQ.empty $ maybeRead prevQueue :: Queue
     qv  <- atomically $ newTVar x
     lpv <- atomically $ newTVar SQ.empty
     who <- atomically $ newTVar S.empty
-    let ms = MusicState qv lpv config who
+    let ms = MusicState qv lpv config' who
     return $ BotFunctions {
             eventsHook = musicHook ms
         ,   dcHook = Just $ cleanUp room ms
@@ -64,10 +63,24 @@ cleanUp r ms = do
 musicHook :: MusicState -> EuphEvent -> Net ()
 musicHook ms (SendEvent msg) = runReaderT (musicCommand msg) ms
 musicHook ms s@SnapshotEvent{} = runReaderT (musicInit s >> musicLoop) ms
-musicHook ms _ = return ()
+musicHook _ _ = return ()
 
 musicInit :: EuphEvent -> MusicBot ()
-musicInit s = return ()
+musicInit (SnapshotEvent _ _ _ users' msgs) =
+    do
+    let sortedMsg = sortBy (compare `on` timeRecieved) msgs
+    let lastPlayedSong = headMay $ mapMaybe auxMay sortedMsg
+    case lastPlayedSong of
+      Nothing -> return ()
+      Just v -> do
+                video <- retrieveYoutube (youtubeID $ fst v)
+                case video of
+                  One meta -> return ()
+                  _ -> return ()
+    where auxMay m = case parsePlayMay (contentMsg m) of
+                        Just x -> Just (x,m)
+                        Nothing -> Nothing
+musicInit _ = return ()
 
 musicLoop :: MusicBot ()
 musicLoop = do return ()
@@ -130,6 +143,7 @@ nonCase =
     , ("!neonlightshow"            , neonLights)
     , ("!switch"                   , swap)
     , ("!swap"                     , swap)
+    , ("!test"                     , test)
     ]
 
 exactWord :: [(String, MessageData -> MusicBot ())]
@@ -185,12 +199,20 @@ matchPlay x = do
         Just video -> handlePlay video
 
 handlePlay :: YTResult -> MusicBot ()
-handlePlay v = return ()
+handlePlay _ = return ()
 
 parsePlay :: String -> MusicBot (Maybe YTResult)
-parsePlay str = case headMay $ mapMaybe parseRequest $ drop 1 $ dropWhile (not . isSuffixOf "!play") $ words str of
+parsePlay str = case parsePlayMay str of
                     Nothing -> return Nothing
                     Just req -> Just <$> retrieveYoutube (youtubeID req)
+
+parsePlayMay :: String -> Maybe YoutubeRequest
+parsePlayMay str = headMay $ mapMaybe parseRequest $ drop 1 $ dropWhile (not . isSuffixOf "!play") $ words str
+
+test :: MessageData -> MusicBot ()
+test x = do
+         result <- retrieveYoutube $ concat $ drop 1 $ words $ contentMsg x
+         lift $ void $ sendReply x $ show result
 
 {-ytFunction :: YTState -> BotFunction
 ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
