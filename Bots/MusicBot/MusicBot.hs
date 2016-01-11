@@ -6,7 +6,7 @@ module Main where
 import           Euphs.Bot
 import           Euphs.Events
 import           Euphs.Types
---import           Euphs.Commands
+import           Euphs.Commands
 import           Euphs.Options
 
 import           YoutubeAPI
@@ -18,19 +18,21 @@ import           Utils
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import           Data.Char (toLower)
-import           Data.List (sortBy, isPrefixOf, isSuffixOf, stripPrefix)
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.List (sortBy, isPrefixOf, isSuffixOf, stripPrefix,intercalate, mapAccumR)
+import           Data.Maybe (fromMaybe, mapMaybe, isJust)
 import           Data.Function (on)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Safe
 
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.IO.Class (liftIO)
-import           Control.Monad.Reader (runReaderT, asks, ask)
-import           Control.Monad (void)
+import           Control.Monad.Reader (runReaderT, asks)
+import           Control.Monad (void, guard)
 
 import           Control.Concurrent.STM
 import           Control.Exception (catch, SomeException)
+
+import           System.Timeout
 
 main :: IO ()
 main = do
@@ -50,7 +52,8 @@ makeBot config' opts = do
     qv  <- atomically $ newTVar x
     lpv <- atomically $ newTVar SQ.empty
     who <- atomically $ newTVar S.empty
-    let ms = MusicState qv lpv config' who
+    sk  <- atomically $ newEmptyTMVar
+    let ms = MusicState qv lpv config' who sk
     return $ BotFunctions {
             eventsHook = musicHook ms
         ,   dcHook = Just $ cleanUp room ms
@@ -72,30 +75,29 @@ musicHook ms (NickEvent user _) = runReaderT (musicUserChange user) ms
 musicHook _ _ = return ()
 
 musicInit :: EuphEvent -> MusicBot ()
-musicInit (SnapshotEvent _ _ _ users' msgs) =
-    do
+musicInit (SnapshotEvent _ _ _ users' msgs) = do
     let sortedMsg = sortBy (compare `on` timeRecieved) msgs
     let lastPlayedSong = headMay $ mapMaybe auxMay sortedMsg
     peoplePresent <- asks peopleSet
     let pSet = S.fromList $ map (flip User Nothing) users' --TODO : Mantain a list of People <> Country associations
     liftIO $ atomically $ writeTVar peoplePresent pSet
     case lastPlayedSong of
-      Nothing -> return ()
-      Just v -> do
-                let rq = fst v
-                video <- retrieveYoutube $ youtubeID rq
-                case video of
-                  One meta -> do
-                              backlog <- asks previousQueue
-                              mc <- asks musicConfig
-                              let qi = QueueItem meta (sender $ snd v) (fromMaybe 0 $ startTimeReq rq)
-                                                      (fromMaybe (duration meta) $ stopTimeReq rq)
-                              let qdi = QueuedItem qi (timeRecieved $ snd v)
-                              liftIO $ atomically $ modifyTVar' backlog $ pqAdd mc qdi
-                  _ -> return ()
+        Nothing -> return ()
+        Just v -> do
+                  let rq = fst v
+                  video <- retrieveYoutube $ youtubeID rq
+                  case video of
+                      One meta -> do
+                                  backlog <- asks previousQueue
+                                  mc <- asks musicConfig
+                                  let qi = QueueItem meta (sender $ snd v) (fromMaybe 0 $ startTimeReq rq)
+                                                          (fromMaybe (duration meta) $ stopTimeReq rq)
+                                  let qdi = QueuedItem qi (timeRecieved $ snd v)
+                                  liftIO $ atomically $ modifyTVar' backlog $ pqAdd mc qdi
+                      _ -> return ()
     where auxMay m = case parsePlayMay (contentMsg m) of
-                        Just x -> Just (x,m)
-                        Nothing -> Nothing
+                         Just x -> Just (x,m)
+                         Nothing -> Nothing
 musicInit _ = return ()
 
 -- TODO: Get Proper User country.
@@ -122,13 +124,54 @@ sendError :: MessageData -> String -> Net EuphEvent
 sendError m = sendReply m . (++) "Error: "
 
 musicLoop :: MusicBot ()
-musicLoop = do return ()
+musicLoop = do timeRemaining <- getEndSongTime
+               waitFor timeRemaining
+               playFirstSong
+               musicLoop
+
+waitFor :: Int -> MusicBot ()
+waitFor t = do skip' <- asks skipSong
+               liftIO $ void $ timeout t $ atomically $ takeTMVar skip'
+
+playFirstSong :: MusicBot ()
+playFirstSong = do q <- asks queue
+                   qd <- asks previousQueue
+                   mc <- asks musicConfig
+                   (Just vid, nx) <- liftIO $ atomically $ do
+                                     q' <- readTVar q
+                                     let v = sqHeadMay q'
+                                     let n = sqHeadMay $ SQ.drop 1 q'
+                                     guard $ isJust v
+                                     writeTVar q $ SQ.drop 1 q'
+                                     return (v,n)
+                   reply <- prettyPlay vid nx -- TODO: Add case expression for matching reply.
+                   let qdi = QueuedItem vid (timeRecieved $ msgData reply)
+                   liftIO $ atomically $ modifyTVar qd $ pqAdd mc qdi
+
+prettyPlay :: QueueItem -> Maybe QueueItem -> MusicBot EuphEvent
+prettyPlay video next = lift $ sendPacket $ flip Send "" prettify
+    where prettify = unlines [intercalate " " $ map ($ video) [showDuration, showTitle, showRequester],
+                              showPlay video, maybeShow next]
+          showDuration v = '[':showTime (stopTime video - Types.startTime v) ++ "]"
+          showTitle v = title $ metadata v
+          showRequester v = "from [" ++ (name $ requester v) ++ "]"
+          maybeShow (Just x) = "Next: " ++ showTitle x ++ " " ++ showRequester x
+          maybeShow Nothing  = "Next: Nothing"
+          showPlay v= "!play " ++ playFormat v
+
+showTime :: Int -> String
+showTime i | i > 0 = let (h,[m,s]) = mapAccumR quotRem i [60,60] in
+                     intercalate ":" $ map showDigit $ [h,m,s]
+           | i > -3 = "now"
+           | otherwise = "past"
+    where showDigit x = (if x < 10 then "0" else "") ++ show x
+
 
 getEndSongTime :: MusicBot Int
 getEndSongTime = do
     pastQ' <- asks previousQueue
     pastQ <- liftIO $ atomically $ readTVar pastQ'
-    let h = pqHeadMay pastQ
+    let h = sqHeadMay pastQ
     curT <- round <$> (liftIO getPOSIXTime)
     case h of
         Nothing -> return 0
@@ -268,71 +311,6 @@ test x = do
          lift $ void $ sendReply x $ show result
 
 {-ytFunction :: YTState -> BotFunction
-ytFunction ytState botState (SendEvent (MessageData time mesgID _ sndUser !content _ _ ))
-   = case (let z = words content in (map (map toLower) (take 1 z) ++ (drop 1 z))) of
-     xs -> do
-           let playLink = findPlay xs
-           unless  ( null playLink ) (
-               do
-               ytItem <- catch (retrieveRequest ytState (head playLink) sndUser time) (\ (SomeException e) -> return $ Left $ show e)
-               case ytItem of
-                 Left _ -> putStrLn "Impossible to parse yt api"
-                 Right ytSong -> modifyMVarMasked_ (lastPlayed ytState) (return . addToBack ytSong) >>
-                                 putMVar  (skip ytState)     False)
-
-ytFunction ytState botState se@(SnapshotEvent {}) =
-   when (not $ noPlay ytState) (
-    do
-    let playLink = take 1 $ filter (\(_,x) -> not $ null x ) $
-                   map (\x -> (x, findPlay $ words $ contentMsg x)) $
-                   sortBy (flip compare `on` timeRecieved) $ messages se
-
-    ytLink <- if not $ null playLink then
-                catch (retrieveRequest ytState (head $ snd $ head playLink) (sender $ fst $ head playLink) (timeRecieved $ fst $ head playLink) ) (\ (SomeException e) -> return $ Left $ show e)
-              else
-                return $ Left "No Links Found"
-
-    case ytLink of
-      Left _       -> return ()
-      Right ytSong -> modifyMVarMasked_ (lastPlayed ytState) (return . addToBack ytSong)
-
-    ytLoop botState ytState
-  )
-
-addToBack :: YTQueueItem -> SQ.Seq YTQueueItem -> SQ.Seq YTQueueItem
-addToBack yt sq = if length sq > sequenceMemory then (SQ.take (SQ.length sq - 1) $ yt SQ.<| sq) else yt SQ.<| sq
-
-ytLoop :: BotState -> YTState -> IO ()
-ytLoop botState ytState = forever $ do
-  waitSong ytState
-  x <- takeMVar $ queue ytState
-  putMVar (queue ytState) $ SQ.drop 1 x
-  if SQ.null x then
-    do
-    _ <- takeMVar $ play ytState
-    putStrLn "Queue started!"
-  else
-    do
-    let rS = shorten 56 (showRestrict (ytmeta $ SQ.index x 0))
-    let restr = if null rS then "" else rS ++ "\n"
-    sendPacket botState
-      $ Send (ytDescription (SQ.index x 0) ++ restr ++ "Next: " ++
-              fromMaybe "Nothing" (titleAuthor <$> (safeHeadSeq $ SQ.drop 1 x))) ""
-    putStrLn $ "Playing Song! "
-    curTime <- getPOSIXTime
-    modifyMVarMasked_ (lastPlayed ytState)  (return . addToBack ((SQ.index x 0) {timePlayed = round curTime}))
-
-waitSong :: YTState -> IO ()
-waitSong ytState =
-    do
-    ct <- getTimeRemaining ytState
-    a <- if ct <= 0 then return Nothing else timeout (1000000 * fromIntegral ct) $ takeMVar $ skip ytState
-    case a of
-      Just False -> waitSong ytState
-      _ -> return ()
-
-getWaitTimes :: YTQueue -> Integer -> SQ.Seq Integer
-getWaitTimes ytList currentWait = fmap (+ currentWait) $ SQ.scanl (\x y -> x + stopTime y - startTime y + restingTime) 0 ytList
 
 getFormattedTime :: Integer -> String
 getFormattedTime x = let hours  =  div x 3600

@@ -11,7 +11,7 @@ import Data.Char (isNumber)
 import Data.Function (on)
 
 import Control.Applicative ((<|>))
-import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM (TVar,TMVar)
 import Control.Monad.Reader (ReaderT)
 
 import Utils
@@ -43,6 +43,7 @@ data MusicState = MusicState {
   , previousQueue :: TVar Queued
   , musicConfig   :: !MConfig
   , peopleSet     :: TVar People
+  , skipSong      :: TMVar ()
 }
 
 data User = User {
@@ -72,6 +73,11 @@ data QueueItem = QueueItem {
   , stopTime  :: !QueueTime
   } deriving (Show,Read)
 
+playFormat :: QueueItem -> String
+playFormat q = "youtube.com/watch?v=" ++ (ytID $ metadata q) ++ mayTimeStart ++ mayTimeStop
+    where mayTimeStart = if (startTime q /= 0) then "&t="  ++ show (startTime q) else ""
+          mayTimeStop  = if (stopTime  q /= duration (metadata $ q)) then "&te=" ++ show (startTime q) else ""
+
 data QueuedItem = QueuedItem {
     queuedItem :: !QueueItem
   , timePlayed :: !Integer
@@ -84,8 +90,8 @@ pqAdd :: MConfig -> QueuedItem -> Queued -> Queued
 pqAdd mc item sq = let l = sequenceMemory mc in
                    SQ.take l $ item SQ.<| sq
 
-pqHeadMay :: Queued -> Maybe QueuedItem
-pqHeadMay s = case SQ.viewl s of
+sqHeadMay :: SQ.Seq a -> Maybe a
+sqHeadMay s = case SQ.viewl s of
                 SQ.EmptyL -> Nothing
                 x SQ.:< _ -> Just x
 
