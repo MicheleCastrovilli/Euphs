@@ -11,18 +11,21 @@ import           Euphs.Options
 
 import           YoutubeAPI
 import           Types
+import           Countries
 import           Help
 import           Utils
 
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
 import           Data.Char (toLower)
-import           Data.List (sortBy, isPrefixOf, isSuffixOf)
+import           Data.List (sortBy, isPrefixOf, isSuffixOf, stripPrefix)
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.Function (on)
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Safe
 
 import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Reader (runReaderT, asks, ask)
 import           Control.Monad (void)
 
@@ -63,6 +66,9 @@ cleanUp r ms = do
 musicHook :: MusicState -> EuphEvent -> Net ()
 musicHook ms (SendEvent msg) = runReaderT (musicCommand msg) ms
 musicHook ms s@SnapshotEvent{} = runReaderT (musicInit s >> musicLoop) ms
+musicHook ms (JoinEvent user) = runReaderT (musicUserJoin user) ms
+musicHook ms (PartEvent user) = runReaderT (musicUserPart user) ms
+musicHook ms (NickEvent user _) = runReaderT (musicUserChange user) ms
 musicHook _ _ = return ()
 
 musicInit :: EuphEvent -> MusicBot ()
@@ -70,20 +76,65 @@ musicInit (SnapshotEvent _ _ _ users' msgs) =
     do
     let sortedMsg = sortBy (compare `on` timeRecieved) msgs
     let lastPlayedSong = headMay $ mapMaybe auxMay sortedMsg
+    peoplePresent <- asks peopleSet
+    let pSet = S.fromList $ map (flip User Nothing) users' --TODO : Mantain a list of People <> Country associations
+    liftIO $ atomically $ writeTVar peoplePresent pSet
     case lastPlayedSong of
       Nothing -> return ()
       Just v -> do
-                video <- retrieveYoutube (youtubeID $ fst v)
+                let rq = fst v
+                video <- retrieveYoutube $ youtubeID rq
                 case video of
-                  One meta -> return ()
+                  One meta -> do
+                              backlog <- asks previousQueue
+                              mc <- asks musicConfig
+                              let qi = QueueItem meta (sender $ snd v) (fromMaybe 0 $ startTimeReq rq)
+                                                      (fromMaybe (duration meta) $ stopTimeReq rq)
+                              let qdi = QueuedItem qi (timeRecieved $ snd v)
+                              liftIO $ atomically $ modifyTVar' backlog $ pqAdd mc qdi
                   _ -> return ()
     where auxMay m = case parsePlayMay (contentMsg m) of
                         Just x -> Just (x,m)
                         Nothing -> Nothing
 musicInit _ = return ()
 
+-- TODO: Get Proper User country.
+musicUserJoin :: UserData -> MusicBot ()
+musicUserJoin user = do peoplePresent <- asks peopleSet
+                        liftIO $ atomically $ modifyTVar' peoplePresent $ S.insert $ User user Nothing
+
+musicUserPart :: UserData -> MusicBot ()
+musicUserPart user = do peoplePresent <- asks peopleSet
+                        liftIO $ atomically $ modifyTVar' peoplePresent $ S.delete $ User user Nothing
+
+musicUserChange :: UserData -> MusicBot ()
+musicUserChange user = do peoplePresent <- asks peopleSet
+                          liftIO $ atomically $ modifyTVar' peoplePresent $ S.insert $ User user Nothing
+
+setUserCountry :: MessageData -> MusicBot ()
+setUserCountry m = let c = (stripPrefix "!setcountry" $ contentMsg m) >>= maybeRead :: Maybe Country in
+                   case c of
+                     Nothing -> lift $ void $ sendError m "Invalid country code."
+                     i@(Just _) -> do peoplePresent <- asks peopleSet
+                                      io $ atomically $ modifyTVar' peoplePresent $ S.insert $ User (sender m) i
+
+sendError :: MessageData -> String -> Net EuphEvent
+sendError m = sendReply m . (++) "Error: "
+
 musicLoop :: MusicBot ()
 musicLoop = do return ()
+
+getEndSongTime :: MusicBot Int
+getEndSongTime = do
+    pastQ' <- asks previousQueue
+    pastQ <- liftIO $ atomically $ readTVar pastQ'
+    let h = pqHeadMay pastQ
+    curT <- round <$> (liftIO getPOSIXTime)
+    case h of
+        Nothing -> return 0
+        Just qd -> return $ calcTime qd curT
+    where qi i = queuedItem i
+          calcTime qd curT = fromIntegral (timePlayed qd - curT) + (stopTime (qi qd) - Types.startTime (qi qd))
 
 musicCommand :: MessageData -> MusicBot ()
 musicCommand msg = matchCommand msg >> matchPlay msg
@@ -144,6 +195,7 @@ nonCase =
     , ("!switch"                   , swap)
     , ("!swap"                     , swap)
     , ("!test"                     , test)
+    , ("!setcountry"               , setUserCountry)
     ]
 
 exactWord :: [(String, MessageData -> MusicBot ())]
@@ -211,7 +263,8 @@ parsePlayMay str = headMay $ mapMaybe parseRequest $ drop 1 $ dropWhile (not . i
 
 test :: MessageData -> MusicBot ()
 test x = do
-         result <- retrieveYoutube $ concat $ drop 1 $ words $ contentMsg x
+         peoples <- asks peopleSet
+         result <- liftIO $ atomically $ readTVar peoples
          lift $ void $ sendReply x $ show result
 
 {-ytFunction :: YTState -> BotFunction

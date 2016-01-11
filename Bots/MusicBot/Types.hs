@@ -18,7 +18,7 @@ import Utils
 import Countries
 
 import Euphs.Bot (Net)
-import Euphs.Types (UserData)
+import Euphs.Types (UserData,name)
 
 
 type MusicBot = ReaderT MusicState Net
@@ -42,7 +42,7 @@ data MusicState = MusicState {
     queue         :: TVar Queue
   , previousQueue :: TVar Queued
   , musicConfig   :: !MConfig
-  , peopleList    :: TVar People
+  , peopleSet     :: TVar People
 }
 
 data User = User {
@@ -55,6 +55,10 @@ instance Eq User where
 
 instance Ord User where
     compare = compare `on` userData
+
+instance Show User where
+    show (User d c) =  name d ++ " from " ++ maybe "???" showCountry c
+
 
 type People = S.Set User
 
@@ -69,12 +73,21 @@ data QueueItem = QueueItem {
   } deriving (Show,Read)
 
 data QueuedItem = QueuedItem {
-    item :: !QueueItem
+    queuedItem :: !QueueItem
   , timePlayed :: !Integer
   }
 
 type Queue = SQ.Seq QueueItem
 type Queued = SQ.Seq QueuedItem
+
+pqAdd :: MConfig -> QueuedItem -> Queued -> Queued
+pqAdd mc item sq = let l = sequenceMemory mc in
+                   SQ.take l $ item SQ.<| sq
+
+pqHeadMay :: Queued -> Maybe QueuedItem
+pqHeadMay s = case SQ.viewl s of
+                SQ.EmptyL -> Nothing
+                x SQ.:< _ -> Just x
 
 roomQueue :: String -> String
 roomQueue r = r ++ "-queue"
@@ -86,7 +99,7 @@ type YoutubeID = String
 data YoutubeRequest = YoutubeRequest {
     youtubeID :: YoutubeID
   , startTimeReq :: Maybe QueueTime
-  , endTimeReq   :: Maybe QueueTime
+  , stopTimeReq   :: Maybe QueueTime
 }
 
 data YTMetadata = YTMetadata {

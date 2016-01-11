@@ -34,6 +34,9 @@ io = liftIO
 main :: IO ()
 main = bot muevalBot
 
+defFile :: String
+defFile = "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs"
+
 myFun :: EuphEvent -> Net ()
 myFun (SendEvent m) = case contentMsg m of
                         "!who" -> do
@@ -45,14 +48,14 @@ myFun (SendEvent m) = case contentMsg m of
                                   void $ sendPacket $ Send stuff $ msgID m
                                   tellLog $ T.pack $ show w
                         _ -> tellLog $ T.pack $ show m
-myFun a@(SnapshotEvent _ _ _ _ _) = do
-                                  tellLog $ T.pack $ show a
+myFun a@(SnapshotEvent _ _ _ u _) = do
+                                  tellLog $ T.pack $ show u
                                   w <- sendPacket Who
                                   let equ = \x y -> name x == name y
                                   let grsort = L.groupBy equ . L.sortBy (\x y -> compare (name x) (name y))
                                   let fil = filter (isPrefixOf "bot:" . userID)
                                   let stuff = unlines $ map show $ concat $ filter (\x -> length x > 1) $ grsort  $ fil $ users w
-                                  tellLog $ T.pack $ stuff
+                                  tellLog $ T.pack $ unlines $ map show $ fil $ users w
 myFun x = tellLog $ T.pack $ show x
 
 muevalBot = emptyBot {
@@ -79,14 +82,14 @@ muevalFunction (SendEvent message) =
                           Nothing -> return ()
                           Just x -> do
                               y <- io $ readProcess' "mueval"
-                                ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs",  "-t","15","-e", x ] []
+                                ["-m","Numeric","-l", defFile , "-t","10","-e", x, "+RTS", "-N2"]
                               let y' = parse y
                               void $ sendPacket $ Send (concatMap format y') $ msgID message
       "!hastype" : _ -> case stripPrefix "!hastype" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> do
                               y <- io $ readProcess' "mueval"
-                                ["-m","Numeric","-l", "/home/viviff9/floobits/viviff9/MuevalDef/MuevalDef.hs","-T","-i","-e", x ] []
+                                ["-m","Numeric","-l", defFile , "-T","-i","-e", x ]
                               let y' = parse y
                               void $ sendPacket $ Send (concatMap format y') $ msgID message
       "!hoogleinfo"  : _ -> case stripPrefix "!hoogleinfo" $ contentMsg message of
@@ -94,50 +97,28 @@ muevalFunction (SendEvent message) =
                           Just x -> io (readProcess' "hoogle"
                             ["search" ,
                             --"-d" , "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
-                            "-n", "3", "-i", x] []) >>=
+                            "-n", "3", "-i", x]) >>=
                                 (\y -> void $ sendPacket $ Send y $ msgID message)
       "!hoogle"  : _ -> case stripPrefix "!hoogle" $ contentMsg message of
                           Nothing -> return ()
                           Just x -> io (readProcess' "hoogle"
                             ["search" ,
                             --"-d" , "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
-                            "-n", "3", x] []) >>=
+                            "-n", "3", x]) >>=
                                 (\y -> void $ sendPacket $ Send y $ msgID message)
+      "!nick" : _ -> case stripPrefix "!nick" $ contentMsg message of
+                      Nothing -> void $ sendPacket $ Nick ""
+                      Just x -> void $ sendPacket $ Nick $ dropWhile (==' ') x
       _ -> return  ()
 
 muevalFunction _ = return ()
 
+readProcess' :: FilePath -> [String] -> IO String
+readProcess' mu arg = do (code,so,se) <-readProcessWithExitCode mu arg ""
+                         case code of
+                           ExitSuccess -> return so
+                           ExitFailure _ -> return $ if null so then se else so
 
-readProcess'
-    :: FilePath                 -- ^ command to run
-    -> [String]                 -- ^ any arguments
-    -> String                   -- ^ standard input
-    -> IO String                -- ^ stdout + stderr
-readProcess' cmd args input = do
-    (Just inh, Just outh, _, pid) <-
-        createProcess (proc cmd args){ std_in  = CreatePipe,
-                                       std_out = CreatePipe,
-                                       std_err = Inherit }
-
-    -- fork off a thread to start consuming the output
-    output  <- hGetContents outh
-    outMVar <- newEmptyMVar
-    _ <- forkIO $ C.evaluate (length output) >> putMVar outMVar ()
-
-    -- now write and flush any input
-    when (not (null input)) $ do hPutStr inh input; hFlush inh
-    hClose inh -- done with stdin
-
-    -- wait on the output
-    takeMVar outMVar
-    hClose outh
-
-    -- wait on the process
-    ex <- waitForProcess pid
-
-    case ex of
-     ExitSuccess   -> return output
-     ExitFailure _ -> return output
 
 format :: Char -> String
 format ',' = " , "

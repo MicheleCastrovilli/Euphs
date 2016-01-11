@@ -140,7 +140,7 @@ retrieveItem req usr = do
                 None -> []
                 One x -> [x]
                 Playlist p -> p
-    return $  fmap (\x -> QueueItem x usr (modify x $ startTimeReq req) $ modifyE x $ endTimeReq req) l
+    return $  fmap (\x -> QueueItem x usr (modify x $ startTimeReq req) $ modifyE x $ stopTimeReq req) l
     where modify  x time = fromMaybe 0 $ do
                            t <- time
                            guard $ duration x < t
