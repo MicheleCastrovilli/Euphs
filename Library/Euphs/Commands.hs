@@ -13,11 +13,12 @@ import Euphs.Types
 
 -- | Generic structure for sending a command.
 data SentCommand =
-  Command
-    { commandID   :: Int -- ^ ID of the packet to send the server
-    , commandData :: EuphCommand -- ^ Proper packet
-    } deriving (Show)
-
+    Command
+      { commandID   :: Int -- ^ ID of the packet to send the server
+      , commandData :: EuphCommand -- ^ Proper packet
+      }
+  | PingCommand { timeReply :: Integer }
+    deriving (Show)
 -- | Option type for determining the Authentication Type
 data AuthOption = AuthPasscode deriving (Eq, Show)
 
@@ -26,9 +27,7 @@ instance J.ToJSON AuthOption where
 
 -- | Types of commands
 data EuphCommand =
-    Ping          { timeReply    :: Integer -- ^ Time of the ping replied to
-                  } -- ^ Reply to ping event
-  | Who -- | Requests a list of sessions connected to the room
+    Who -- | Requests a list of sessions connected to the room
   | Log           { nMsg         :: Int -- ^ Number of messages to request
                   , beforeMsg    :: String  -- ^ ID from when to request
                   } -- ^ Requests a log of the most recent messages
@@ -46,14 +45,10 @@ data EuphCommand =
 
 instance J.ToJSON SentCommand where
   toJSON (Command idCommand dataCommand) = J.object ( "id" J..= show idCommand  : inPair dataCommand)
+  toJSON (PingCommand time) = J.object (["type" J..= ("ping-reply" :: J.Value) ,"data" J..= J.object [ "time" J..= time ]])
 
 -- | An internal function, to work with the JSON data
 inPair :: EuphCommand -> [(T.Text, J.Value)]
-inPair (Ping time) =
-  [
-    ("type" , "ping-reply" ),
-    ("data", J.object  [ "time" J..= time ])
-  ]
 inPair (Nick nickname) =
   [
     ("type" , "nick" ),

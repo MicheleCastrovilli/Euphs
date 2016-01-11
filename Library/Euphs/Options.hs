@@ -1,4 +1,5 @@
 -- | This module defines the type 'Opts' and gives a function to parse commandline arguments.
+{-# LANGUAGE BangPatterns #-}
 module Euphs.Options
     ( Opts(..)
     , parseOpts
@@ -14,17 +15,17 @@ import System.Environment (getArgs)
 import Control.Monad (when)
 
 -- | The main options structure.
-data Opts = Opts { heimHost   :: String    -- ^ Heim instance hoster
-                 , heimPort   :: Int       -- ^ The port to connect to
-                 , useSSL     :: Bool      -- ^ Whether to use wss or ws
-                 , roomList   :: String    -- ^ A list of initial rooms separated by whitespace in the format of <room name>[-<pw>]
-                 , showHelp   :: Bool      -- ^ Print help on startup
-                 , logTarget  :: FilePath  -- ^ The log file to write to.
+data Opts = Opts { heimHost   :: !String    -- ^ Heim instance hoster
+                 , heimPort   :: !Int       -- ^ The port to connect to
+                 , useSSL     :: !Bool      -- ^ Whether to use wss or ws
+                 , roomList   :: !String    -- ^ A list of initial rooms separated by whitespace in the format of <room name>[-<pw>]
+                 , showHelp   :: !Bool      -- ^ Print help on startup
+                 , logTarget  :: !FilePath  -- ^ The log file to write to.
                                            -- Fall back to 'stdout' when
                                            -- empty
-                 , botAccount :: FilePath  -- ^ Email and password for logging into the account
-                 , botNick    :: String    -- ^ The nick the Bot will be using.
-                 , config     :: FilePath  -- ^ Config file for specific bot options
+                 , botAccount :: !FilePath  -- ^ Email and password for logging into the account
+                 , botNick    :: !String    -- ^ The nick the Bot will be using.
+                 , config     :: !FilePath  -- ^ Config file for specific bot options
                  }
                  deriving (Show)
 

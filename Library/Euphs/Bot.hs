@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 --{-# LANGUAGE ViewPatterns #-}
 -- | Provides a framework to build bots connecting to <https://github.com/euphoria-io/heim heim>.
 -- This module is still a bit unstable, and between API changes, it will break a lot.
@@ -72,15 +73,15 @@ type Net = ReaderT Bot IO
 
 -- | The main Bot data structure.
 data Bot = Bot
-    { botConnection :: WS.Connection -- ^ Websocket connection to heim.
-    , packetCount   :: PacketID -- ^ The packet counter
-    , botAgent      :: BotAgent -- ^ The Bot agent given from the server
-    , botRoom       :: String -- ^ The room the bot currently is in.
-    , botName       :: String -- ^ Initial bot nick
-    , startTime     :: UTCTime -- ^ Time at which the bot was started
-    , botFun        :: BotFunctions -- ^ Custom bot functions
+    { botConnection :: !WS.Connection -- ^ Websocket connection to heim.
+    , packetCount   :: !PacketID -- ^ The packet counter
+    , botAgent      :: !BotAgent -- ^ The Bot agent given from the server
+    , botRoom       :: !String -- ^ The room the bot currently is in.
+    , botName       :: !String -- ^ Initial bot nick
+    , startTime     :: !UTCTime -- ^ Time at which the bot was started
+    , botFun        :: !BotFunctions -- ^ Custom bot functions
     , sideThreads   :: TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
-    , logHandle     :: Handle -- ^ Logging handle
+    , logHandle     :: !Handle -- ^ Logging handle
     , evtQueue      :: TQueue EuphEvent -- ^ Queue of reply events
     , roomPW        :: Maybe String -- ^ Room password
     , closeVar      :: TChan ()
@@ -198,6 +199,7 @@ botQueue = do
            fun  <- asks botFun
            forever $ do
                   msg <- io $ onException (WS.receiveData conn :: IO B.ByteString) (atomically (writeTChan close ()))
+                  --tellLog $ TL.toStrict $ T.decodeUtf8 msg
                   case decodePacket msg of
                       Left stuff -> tellLog $ "Can't parse : " `T.append` TL.toStrict (T.decodeUtf8 msg) `T.append` T.pack ("\nReason: " ++ stuff)
                       Right event -> forkBot $
@@ -245,10 +247,9 @@ getNextPacket = do
 
 sendPing :: Integer -> Net ()
 sendPing x = do
-      tellLog $ "Sending ping " `T.append` T.pack (show x)
-      seqNum <- getNextPacket
+      --tellLog $ "Sending ping " `T.append` T.pack (show x)
       conn <- asks botConnection
-      io $ WS.sendTextData conn $ encodePacket $ Command seqNum $ Ping x
+      io $ WS.sendTextData conn $ encodePacket $ PingCommand x
 
 -- | Sends an Heim command, and fetches the reply.
 sendPacket :: EuphCommand -> Net EuphEvent

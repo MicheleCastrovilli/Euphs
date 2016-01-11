@@ -11,46 +11,46 @@ import           Euphs.Commands
 
 -- | The main Event structure, every JSON reply gets parsed into this structure, and then passed to the custom bot function.
 data EuphEvent =
-        PingEvent     { pingTime  :: Integer -- ^ The sent time
-                      , nextTime  :: Integer -- ^ Next time a ping will be sent
+        PingEvent     { pingTime  :: !Integer -- ^ The sent time
+                      , nextTime  :: !Integer -- ^ Next time a ping will be sent
                       }
-      | WhoReply      { idReply   :: Int -- ^ ID based on the command sent
-                      , users     :: [UserData] -- ^ List of sessions connected
+      | WhoReply      { idReply   :: !Int -- ^ ID based on the command sent
+                      , users     :: ![UserData] -- ^ List of sessions connected
                       }
-      | LogReply      { idReply   :: Int
-                      , messages  :: [MessageData] -- ^ List of messages requested
+      | LogReply      { idReply   :: !Int
+                      , messages  :: ![MessageData] -- ^ List of messages requested
                       }
-      | SnapshotEvent { identity  :: String -- ^  Id of the agent logged
-                      , sessionID :: String -- ^ Global ID of this session
-                      , version   :: String -- ^ Server's version identifier
-                      , users     :: [UserData] -- ^ List of all other sessions , excluding self
-                      , messages  :: [MessageData] -- ^ Up to previous 100 messages in the room
+      | SnapshotEvent { identity  :: !String -- ^  Id of the agent logged
+                      , sessionID :: !String -- ^ Global ID of this session
+                      , version   :: !String -- ^ Server's version identifier
+                      , users     :: ![UserData] -- ^ List of all other sessions , excluding self
+                      , messages  :: ![MessageData] -- ^ Up to previous 100 messages in the room
                       }
-      | SendEvent     { msgData   :: MessageData  -- ^ Messsage sent from an user
+      | SendEvent     { msgData   :: !MessageData  -- ^ Messsage sent from an user
                       }
-      | SendReply     { idReply   :: Int
-                      , msgData   :: MessageData -- ^ Message sent from the bot
+      | SendReply     { idReply   :: !Int
+                      , msgData   :: !MessageData -- ^ Message sent from the bot
                       }
-      | NickEvent     { userData  :: UserData -- ^ New user agent
-                      , fromNick  :: String -- ^ Previous nick
+      | NickEvent     { userData  :: !UserData -- ^ New user agent
+                      , fromNick  :: !String -- ^ Previous nick
                       }
-      | NickReply     { idReply   :: Int
-                      , userData  :: UserData -- ^ New bot agent
-                      , fromNick  :: String -- ^ Previous nick
+      | NickReply     { idReply   :: !Int
+                      , userData  :: !UserData -- ^ New bot agent
+                      , fromNick  :: !String -- ^ Previous nick
                       }
-      | JoinEvent     { userData  :: UserData  -- ^ Session that joined the room
+      | JoinEvent     { userData  :: !UserData  -- ^ Session that joined the room
                       }
-      | PartEvent     { userData  :: UserData  -- ^ Session that left the room
+      | PartEvent     { userData  :: !UserData  -- ^ Session that left the room
                       }
-      | HelloEvent    { userData  :: UserData  -- ^ Self session
-                      , privateRoom :: Bool -- ^ Indicating whether a room is private or not.
-                      , version   :: String -- ^ Version id of the server
+      | HelloEvent    { userData  :: !UserData  -- ^ Self session
+                      , privateRoom :: !Bool -- ^ Indicating whether a room is private or not.
+                      , version   :: !String -- ^ Version id of the server
                       }
-      | AuthReply     { idReply   :: Int
-                      , success   :: Bool -- ^ Whether the authentication was successful
-                      , reason    :: String -- ^ Reason of denied auth
+      | AuthReply     { idReply   :: !Int
+                      , success   :: !Bool -- ^ Whether the authentication was successful
+                      , reason    :: !String -- ^ Reason of denied auth
                       }
-      | BounceEvent   { reason    :: String -- ^ Reason of bounce event
+      | BounceEvent   { reason    :: !String -- ^ Reason of bounce event
                       }
       deriving (Show)
 
