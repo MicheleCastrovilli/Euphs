@@ -34,7 +34,7 @@ import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 
 import           System.IO                   (stdout, IOMode(..), Handle, openFile, hClose)
-import           System.Posix.Signals        (keyboardSignal, installHandler, Handler(Catch))
+import           System.Posix.Signals        (sigTERM,keyboardSignal, installHandler, Handler(Catch))
 
 import qualified Data.ByteString.Lazy        as B
 --import qualified Data.ByteString.Lazy.Char8  as BC
@@ -71,21 +71,31 @@ type BotAgent = TMVar UserData
 -- | The monad transformer stack, for handling all the bot events
 type Net = ReaderT Bot IO
 
+data Close = CorrectClose | Reconnect | RoomDoesntExist
+
 -- | The main Bot data structure.
 data Bot = Bot
     { botConnection :: !WS.Connection -- ^ Websocket connection to heim.
-    , packetCount   :: !PacketID -- ^ The packet counter
-    , botAgent      :: !BotAgent -- ^ The Bot agent given from the server
-    , botRoom       :: !String -- ^ The room the bot currently is in.
-    , botName       :: !String -- ^ Initial bot nick
-    , startTime     :: !UTCTime -- ^ Time at which the bot was started
-    , botFun        :: !BotFunctions -- ^ Custom bot functions
-    , sideThreads   :: TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
-    , logHandle     :: !Handle -- ^ Logging handle
-    , evtQueue      :: TQueue EuphEvent -- ^ Queue of reply events
-    , roomPW        :: Maybe String -- ^ Room password
-    , closeVar      :: TChan ()
+    , botStatic :: BotStatic
+    , botDyn :: BotDyn
     }
+
+data BotStatic = BotStatic {
+      startTime :: !UTCTime -- ^ Time at which the bot was started
+    , botFun    :: !BotFunctions -- ^ Custom bot functions
+    , logHandle :: !Handle -- ^ Logging handle
+    , closeVar  ::  TChan Close -- ^ The way of handling the closing of a bot
+}
+
+data BotDyn = DotByn {
+      packetCount :: !PacketID -- ^ The packet counter
+    , botAgent    :: !BotAgent -- ^ The Bot agent given from the server
+    , sideThreads ::  TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
+    , evtQueue    ::  TQueue EuphEvent -- ^ Queue of reply events
+    , botRoom     :: !String -- ^ The room the bot currently is in.
+    , roomPW      ::  Maybe String -- ^ Room password
+    , lastMessage ::  Maybe String -- ^ The last message id received
+}
 
 -- | Custom Bot functions
 data BotFunctions = BotFunctions {
@@ -175,6 +185,7 @@ botLoop = do
                       guard $ success a
           _ <- sendPacket $ Nick bname
           _ <- io $ installHandler keyboardSignal (Catch $ atomically $ writeTChan closing ()) Nothing
+          _ <- io $ installHandler sigTERM (Catch $ atomically $ writeTChan closing ()) Nothing
           void $ io $ atomically $ readTChan closing
 
 -- | Logging information to the log handle.
@@ -216,6 +227,10 @@ botQueue = do
                                        HelloEvent bs _ _ -> do
                                                             ag <- asks botAgent
                                                             io $ atomically $ putTMVar ag bs
+                                       n@(NickReply _ u _) -> do
+                                                            ag <- asks botAgent
+                                                            io $ atomically $ do swapTMVar ag u
+                                                                                 writeTQueue replies n
                                        x | isReply x -> io $ atomically $ writeTQueue replies x
                                          | otherwise -> eventsHook fun x
            where isReply WhoReply{} = True
@@ -235,7 +250,7 @@ forkBot act = do
               thrID <- myThreadId
               atomically $ modifyTVar thisThreads (thrID : )
               catch (runReaderT act thisBot) (\x -> runReaderT (tellLog $ T.pack $ show (x :: SomeException)) thisBot)
-              atomically $ modifyTVar thisThreads (filter (/= thrID))
+              atomically $ modifyTVar thisThreads (delete thrID)
 
 getNextPacket :: Net Int
 getNextPacket = do
