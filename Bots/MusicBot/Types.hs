@@ -82,6 +82,7 @@ data QueuedItem = QueuedItem {
     queuedItem :: !QueueItem
   , timePlayed :: !Integer
   }
+  deriving Show
 
 type Queue = SQ.Seq QueueItem
 type Queued = SQ.Seq QueuedItem
@@ -94,6 +95,17 @@ sqHeadMay :: SQ.Seq a -> Maybe a
 sqHeadMay s = case SQ.viewl s of
                 SQ.EmptyL -> Nothing
                 x SQ.:< _ -> Just x
+
+sqInsert :: [QueueItem] -> Queue -> Queue
+sqInsert items q = SQ.fromList items SQ.>< q
+
+sqAppend :: [QueueItem] -> Queue -> Queue
+sqAppend items q = q SQ.>< SQ.fromList items
+
+sqInsertPos :: [QueueItem] -> Int -> Queue -> Queue
+sqInsertPos items pos q = let (p1,p2) = SQ.splitAt pos q in
+                              p1 SQ.>< sqInsert items p2
+
 
 roomQueue :: String -> String
 roomQueue r = r ++ "-queue"

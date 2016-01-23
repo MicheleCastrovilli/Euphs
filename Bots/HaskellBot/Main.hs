@@ -106,9 +106,9 @@ muevalFunction (SendEvent message) =
                             --"-d" , "/home/viviff9/.cabal/share/x86_64-linux-ghc-7.10.2/hoogle-4.2.42/databases",
                             "-n", "3", x]) >>=
                                 (\y -> void $ sendPacket $ Send y $ msgID message)
-      "!nick" : _ -> case stripPrefix "!nick" $ contentMsg message of
-                      Nothing -> void $ sendPacket $ Nick ""
-                      Just x -> void $ sendPacket $ Nick $ dropWhile (==' ') x
+      --"!nick" : _ -> case stripPrefix "!nick" $ contentMsg message of
+      --                Nothing -> void $ sendPacket $ Nick ""
+      --                Just x -> void $ sendPacket $ Nick $ dropWhile (==' ') x
       _ -> return  ()
 
 muevalFunction _ = return ()

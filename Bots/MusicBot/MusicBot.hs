@@ -17,6 +17,7 @@ import           Utils
 
 import qualified Data.Sequence as SQ
 import qualified Data.Set as S
+import qualified Data.Text as T
 import           Data.Char (toLower)
 import           Data.List (sortBy, isPrefixOf, isSuffixOf, stripPrefix,intercalate, mapAccumR)
 import           Data.Maybe (fromMaybe, mapMaybe, isJust)
@@ -125,13 +126,16 @@ sendError m = sendReply m . (++) "Error: "
 
 musicLoop :: MusicBot ()
 musicLoop = do timeRemaining <- getEndSongTime
+               lift $ tellLog $ T.pack $ "Waiting for " ++ show timeRemaining
                waitFor timeRemaining
+               lift $ tellLog "Waiting for songs!"
                playFirstSong
                musicLoop
 
 waitFor :: Int -> MusicBot ()
 waitFor t = do skip' <- asks skipSong
-               liftIO $ void $ timeout t $ atomically $ takeTMVar skip'
+               let t' = max 0 t
+               liftIO $ void $ timeout (t'*1000000) $ atomically $ takeTMVar skip'
 
 playFirstSong :: MusicBot ()
 playFirstSong = do q <- asks queue
@@ -173,6 +177,7 @@ getEndSongTime = do
     pastQ <- liftIO $ atomically $ readTVar pastQ'
     let h = sqHeadMay pastQ
     curT <- round <$> (liftIO getPOSIXTime)
+    lift $ void $  sendPacket $ Send (unlines [show curT,show h]) ""
     case h of
         Nothing -> return 0
         Just qd -> return $ calcTime qd curT
@@ -244,8 +249,18 @@ nonCase =
 exactWord :: [(String, MessageData -> MusicBot ())]
 exactWord = []
 
+withQueue :: (Queue -> Queue) -> MusicBot ()
+withQueue f = do q <- asks queue
+                 liftIO $ atomically $ modifyTVar' q f
+
 dSkip :: MessageData -> MusicBot ()
-dSkip x = lift $ void $ sendReply x "Skipped something, pretend"
+dSkip x = do
+          myself <- lift $ getBotAgent
+          item <- retrieveItem (YoutubeRequest "a1Y73sPHKxw" Nothing Nothing) myself
+          case item of
+            i@[_] -> withQueue $ sqInsert i
+            _ -> lift $ void $ sendReply x "There has been an error on retrieving the dramatic skip video, the bot will now try skipping only."
+          skip x
 
 dumpQ :: MessageData -> MusicBot ()
 dumpQ x = lift $ void $ sendReply x "Dumped the queue, pretend"
