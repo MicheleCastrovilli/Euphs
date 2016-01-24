@@ -7,8 +7,6 @@ import Control.Monad (void)
 import Safe
 
 import Euphs.Bot
-import Euphs.Events
-import Euphs.Commands
 import Euphs.Types
 
 -- | A '!command' string, to define the trigger of the action.

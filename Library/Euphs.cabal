@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                Euphs
-version:             0.0.2
+version:             0.0.3
 synopsis:            A framework for writing bots for euphoria.io.
 description:         An haskell abstraction of the euphoria.io events and commands,
                      done by parsing and encoding the JSON messages.
@@ -24,8 +24,6 @@ source-repository head
 
 library
   exposed-modules:     Euphs.Bot,
-                       Euphs.Events,
-                       Euphs.Commands,
                        Euphs.Types,
                        Euphs.Options,
                        Euphs.Easy

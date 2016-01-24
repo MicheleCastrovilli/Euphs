@@ -55,8 +55,6 @@ import           Control.Concurrent.STM
 import           Control.Concurrent          (ThreadId, forkIO, myThreadId)
 import           Control.Exception           (SomeException, catch, onException)
 
-import           Euphs.Events
-import           Euphs.Commands
 import           Euphs.Types
 import           Euphs.Options
 

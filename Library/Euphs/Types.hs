@@ -3,111 +3,112 @@
 -- | Also look at the official <https://github.com/euphoria-io/heim/blob/master/doc/api.md api>.
 module Euphs.Types where
 
-import qualified Data.Aeson                 as J
-import qualified Data.Text               as T
-import qualified Data.ByteString.Lazy    as B
-import           Control.Monad
+import qualified Data.Aeson                  as J
+import qualified Data.Aeson.Types            as JT
+import qualified Data.Text                   as T
+import qualified Data.ByteString.Lazy        as B
 import           Control.Applicative ((<|>))
 
 -- | A type synonym for Snowflake.
-type MessageID = String
+type Snowflake = String
 type UserID = String
 -- | Structure representing an agent, user or bot. Also called SessionView, in the api.
-data UserData = UserData { userID     :: String -- ^ ID of the user
-    , name       :: String -- ^ Current nick of the user
-    , serverID   :: String -- ^ The id of the server
-    , serverEra  :: String -- ^ The era of the server
-    , sessionID  :: String -- ^ ID of the session, unique across all sessions, globally
-    , isStaff    :: Bool   -- ^ Whether the session, is a member of the staff
-    , isManager  :: Bool   -- ^ Whether the session, is a manager of the room
+data SessionView = SessionView {
+      userID :: UserID -- ^ ID of the user
+    , userName :: String -- ^ Current nick of the user
+    , userServerID :: String -- ^ The id of the server
+    , userServerEra :: String -- ^ The era of the server
+    , userSessionID :: Snowflake -- ^ ID of the session, unique across all sessions, globally
+    , userIsStaff :: Bool   -- ^ Whether the session, is a member of the staff
+    , userIsManager :: Bool   -- ^ Whether the session, is a manager of the room
     } deriving (Show, Read)
 
 -- | Instance for Eq, based on the agentID
-instance Eq UserData where
+instance Eq SessionView where
     x == y = (userID x) == (userID y)
 
 -- | Instance for Eq, based on the agentID
-instance Ord UserData where
+instance Ord SessionView where
     compare x y = compare (userID x) (userID y)
 
 -- | Structure representing a Message incoming from the server.
-data MessageData = MessageData { timeRecieved :: Integer --
-    , msgID        :: MessageID -- ID of the message
-    , parentMsg    :: String -- ID of the message's parent, or null
-    , prevEditID   :: String -- ID of the message's previous edit, or null
-    , sender       :: UserData -- View of the sender's session
-    , contentMsg   :: String -- Content of the message.
-    , encryptKey   :: String -- ID of the key that encrypts the message
-    , edited       :: Maybe Integer -- Unix Timestamp of when the message was edited
-    , deleted      :: Maybe Integer -- Unix Timestamp of when the message was deleted
-    , truncated    :: Bool -- Full content of the msg not included
+data Message = Message { timeRecieved :: Integer --
+    , msgID :: Snowflake -- ID of the message
+    , msgParentMsg :: Snowflake -- ID of the message's parent, or null
+    , msgPrevEditID :: Snowflake -- ID of the message's previous edit, or null
+    , msgSender :: SessionView -- View of the sender's session
+    , msgContentMsg :: String -- Content of the message.
+    , msgEncryptKey :: String -- ID of the key that encrypts the message
+    , msgEdited :: Maybe Integer -- Unix Timestamp of when the message was edited
+    , msgDeleted :: Maybe Integer -- Unix Timestamp of when the message was deleted
+    , msgTruncated :: Bool -- Full content of the msg not included
     } deriving (Show)
 
 -- | Aeson instance for parsing Message
-instance J.FromJSON MessageData where
+instance J.FromJSON Message where
   parseJSON (J.Object v) =
-      MessageData <$> (v J..: "time")
-                  <*> (v J..: "id")
-                  <*> (v J..:? "parent" J..!="")
-                  <*> (v J..:? "previous_edit_id" J..!="")
-                  <*> (v J..: "sender")
-                  <*> (v J..: "content")
-                  <*> (v J..:? "encryption_key_id" J..!="")
-                  <*> (v J..:? "edited" J..!=Nothing)
-                  <*> (v J..:? "deleted" J..!=Nothing)
-                  <*> (v J..:? "truncated" J..!=False)
+      Message <$> (v J..: "time")
+              <*> (v J..: "id")
+              <*> (v J..:? "parent" J..!="")
+              <*> (v J..:? "previous_edit_id" J..!="")
+              <*> (v J..: "sender")
+              <*> (v J..: "content")
+              <*> (v J..:? "encryption_key_id" J..!="")
+              <*> (v J..:? "edited" J..!=Nothing)
+              <*> (v J..:? "deleted" J..!=Nothing)
+              <*> (v J..:? "truncated" J..!=False)
   parseJSON _ = fail "Not a valid Message JSON"
 
 -- | Aeson instance for parsing a SessionView
-instance J.FromJSON UserData where
+instance J.FromJSON SessionView where
   parseJSON (J.Object v) =
-      UserData <$> (v J..: "id")
-               <*> (v J..: "name" <|> v J..: "to")
-               <*> (v J..:? "server_id" J..!= "")
-               <*> (v J..:? "server_era" J..!= "")
-               <*> (v J..: "session_id")
-               <*> (v J..:? "is_staff" J..!= False)
-               <*> (v J..:? "is_manager" J..!= False)
+      SessionView  <$> (v J..: "id")
+                   <*> (v J..: "name" <|> v J..: "to")
+                   <*> (v J..:? "server_id" J..!= "")
+                   <*> (v J..:? "server_era" J..!= "")
+                   <*> (v J..: "session_id")
+                   <*> (v J..:? "is_staff" J..!= False)
+                   <*> (v J..:? "is_manager" J..!= False)
   parseJSON _ = fail "Not a valid SessionView JSON"
 
 ---------------------------------------- EVENTS ----------------------------------------
 
 -- | The main Event structure
 data EuphsPacket = EuphsEvt {
-    packetEvt :: EuphEvent -- ^ The Event the packet encapsulates
+    pktEvt :: EuphEvent -- ^ The Event the packet encapsulates
   }
   | EuphsReply {
-    idPacket :: String -- ^ The ID of the reply
-  , packetRpl :: EuphReply -- ^ The reply encapsulated
-  , throttled :: Maybe String -- ^ A throttled warning
+    pktID :: String -- ^ The ID of the reply
+  , pktReply :: EuphReply -- ^ The reply encapsulated
+  , pktThrottled :: Maybe String -- ^ A throttled warning
   }
   | EuphsError {
-    idPacketMay :: Maybe String -- ^ If the error is referring to a reply
-  , errorReason :: String -- ^ The reason for the error
+    pktIDMay :: Maybe String -- ^ If the error is referring to a reply
+  , pktErrorReason :: String -- ^ The reason for the error
   }
   deriving Show
 
 -- | Asynchronous events recieved from Heim
 data EuphEvent =
         PingEvent     { pingTime :: !Integer -- ^ The sent time
-                      , nextTime :: !Integer -- ^ Next time a ping will be sent
+                      , nextPingTime :: !Integer -- ^ Next time a ping will be sent
                       }
-      | SnapshotEvent { identity :: !String -- ^  Id of the agent logged
-                      , sessionID :: !String -- ^ Global ID of this session
-                      , version :: !String -- ^ Server's version identifier
-                      , users :: ![UserData] -- ^ List of all other sessions , excluding self
-                      , messages :: ![MessageData] -- ^ Up to previous 100 messages in the room
+      | SnapshotEvent { snapIdentity :: !String -- ^  Id of the agent logged
+                      , snapSessionID :: !String -- ^ Global ID of this session
+                      , snapVersion :: !String -- ^ Server's version identifier
+                      , snapUsers :: ![SessionView] -- ^ List of all other sessions , excluding self
+                      , snapMessages :: ![Message] -- ^ Up to previous 100 messages in the room
                       }
-      | SendEvent     { msgData :: !MessageData  -- ^ Messsage sent from an user
+      | SendEvent     { sentMsg :: !Message -- ^ Messsage sent from an user
                       }
-      | NickEvent     { userData :: !UserData -- ^ New user agent
-                      , fromNick :: !String -- ^ Previous nick
+      | NickEvent     { userData :: !SessionView -- ^ New user agent
+                      , neFromNick :: !String -- ^ Previous nick
                       }
-      | JoinEvent     { userData :: !UserData  -- ^ Session that joined the room
+      | JoinEvent     { userData :: !SessionView  -- ^ Session that joined the room
                       }
-      | PartEvent     { userData :: !UserData  -- ^ Session that left the room
+      | PartEvent     { userData :: !SessionView  -- ^ Session that left the room
                       }
-      | HelloEvent    { userData :: !UserData  -- ^ Self session
+      | HelloEvent    { userData :: !SessionView  -- ^ Self session
                       , privateRoom :: !Bool -- ^ Indicating whether a room is private or not.
                       , serverVersion :: !String -- ^ Version id of the server
                       }
@@ -115,111 +116,110 @@ data EuphEvent =
       }
       | NetworkEvent  { networkType :: !String -- ^ Reason for the network event
                       }
-      | PMInitEvent   { userData :: !UserData
+      | PMInitEvent   { userData :: !SessionView
                       , fromNick :: !String
                       , fromRoom :: !String
-                      , pmID :: !MessageID
+                      , pmID :: !Snowflake
                       }
       deriving (Show)
 
 -- | Replies to command sent by the client
 data EuphReply =
-        GetMessageReply { getMsg :: !Message -- ^ Retrieved message of the requested ID
+        AuthReply       { authSuccess :: !Bool -- ^ Whether the authentication was successful
+                        , authReason :: !String -- ^ Reason for the denied authentication
                         }
-      | WhoReply        { whoUsers :: ![SessionView] -- ^ List of sessions connected
+      | GetMessageReply { getMsg :: !Message -- ^ Retrieved message of the requested ID
                         }
       | LogReply        { logMessages :: ![Message] -- ^ List of messages requested
-                        , logBefore :: Snowflake -- ^  Messages prior to this snowflake returned
-                        }
-      | SendReply       { sendReply :: !Message -- ^ Message sent from the bot
+                        , logBefore :: Maybe Snowflake -- ^  Messages prior to this snowflake returned
                         }
       | NickReply       { nickSessionId :: !String
-                        , nickUserData :: !UserData -- ^ New bot agent
+                        , nickUserData :: !SessionView -- ^ New bot agent
                         , nickFrom :: !String -- ^ Previous nick
                         , nickTo :: !String
                         }
-      | AuthReply       { authSuccess :: !Bool -- ^ Whether the authentication was successful
-                        , authReason :: !String -- ^ Reason for the denied authentication
-                        }
       | PMInitReply     { pmrID :: !Snowflake
                         , pmrToNick :: !String
+                        }
+      | SendReply       { sentReply :: !Message -- ^ Message sent from the bot
+                        }
+      | WhoReply        { whoUsers :: ![SessionView] -- ^ List of sessions connected
                         }
 
     deriving Show
 
 instance J.FromJSON EuphsPacket where
     parseJSON p@(J.Object v) = do
-                               msgType <- v J..: "type" :: Parsed T.Text
-                               let pktType = reverse . takeWhile (/='-') . reverse msgType
+                               msgType <- v J..: "type" :: JT.Parser T.Text
+                               let pktType = reverse $ takeWhile (/='-') $ reverse $ T.unpack msgType
                                let parsed =  case pktType of
                                                 "reply" -> parseReply p
                                                 _ -> parseEvt p
                                parseError p <|> parsed
-    parseJSON x = J.typeMismatch "EuphsPacket" x
+    parseJSON x = JT.typeMismatch "EuphsPacket" x
 
-parseReply :: J.Value -> Parser EuphsPacket
+parseReply :: J.Value -> JT.Parser EuphsPacket
 parseReply (J.Object v) = do
     msgType <- v J..: "type"
     packet <- case msgType :: T.Text of
-        "send-reply" -> SendReply <$> fmap read (v J..: "id")
-                        <*> (v J..: "data")
-        "nick-reply" -> NickReply <$> fmap read (v J..: "id")
-                        <*> (v J..: "data")
-                        <*> (v J..: "data" >>= (\x -> x J..:? "from" J..!=""))
-        "who-reply" ->  WhoReply <$> fmap read (v J..: "id")
-                        <*> (v J..: "data" >>= (J..: "listing"))
-        "log-reply" ->  LogReply <$> fmap read (v J..: "id")
-                        <*> v J..: "data"
-        "auth-reply" -> AuthReply <$> fmap read (v J..: "id")
-                        <*> (v J..: "data" >>= (J..: "success"))
+        "auth-reply" -> AuthReply <$> (v J..: "data" >>= (J..: "success"))
                         <*> (v J..: "data" >>= (\x -> x J..:? "reason" J..!= ""))
-        "pm-initiate-reply" -> PMInitReply  <$> (v J..: "data" >>= (J..: "pm_id"))
-                               <*> (v J..: "data" >>= (J..: "to_nick"))
         "get-message-reply" -> GetMessageReply <$> (v J..: "data")
+        "log-reply" ->  LogReply <$> (v J..: "data" >>= (J..: "log"))
+                        <*> (v J..: "data" >>= (J..:? "before"))
+        "nick-reply" -> NickReply
+                        <$> (v J..: "data" >>= (J..: "session_id"))
+                        <*> (v J..: "data" >>= (J..: "id"))
+                        <*> (v J..: "data" >>= (J..: "from"))
+                        <*> (v J..: "data" >>= (J..: "to"))
+        "pm-initiate-reply" -> PMInitReply <$> (v J..: "data" >>= (J..: "pm_id"))
+                               <*> (v J..: "data" >>= (J..: "to_nick"))
+        "send-reply" -> SendReply <$> (v J..: "data")
+        "who-reply" ->  WhoReply <$> (v J..: "data" >>= (J..: "listing"))
         _ -> fail "No suitable reply found"
     idPkt <- v J..: "id"
     thrReas <- v J..:? "throttled_reason"
     return (EuphsReply idPkt packet thrReas)
-parseReply x = J.typeMismatch "EuphsPacket" x
+parseReply x = JT.typeMismatch "EuphsPacket" x
 
-parseEvt :: J.Value -> Parser EuphsPacket
+parseEvt :: J.Value -> JT.Parser EuphsPacket
 parseEvt (J.Object v) = do
     msgType <- v J..: "type"
     pkt <- case msgType :: T.Text of
-        "ping-event" -> PingEvent <$> ( v J..: "data" >>= (J..: "time"))
-                        <*> ( v J..: "data" >>= (J..: "next"))
-        "send-event" -> SendEvent <$> ( v J..: "data" )
-        "nick-event" -> NickEvent <$> v J..: "data"
-                        <*> (v J..: "data" >>= (J..: "from"))
-        "join-event" -> JoinEvent <$> v J..: "data"
-        "part-event" -> PartEvent <$> v J..: "data"
+        "bounce-event" -> BounceEvent <$> (v J..: "data" >>= (J..: "reason"))
         "hello-event" -> HelloEvent <$> (v J..: "data" >>= (J..: "session"))
                          <*> (v J..: "data" >>= (J..: "room_is_private"))
                          <*> (v J..: "data" >>= (J..: "version"))
+        "join-event" -> JoinEvent <$> v J..: "data"
+        "network-event" -> NetworkEvent <$> (v J..: "data" >>= (J..: "type"))
+        "nick-event" -> NickEvent <$> v J..: "data"
+                        <*> (v J..: "data" >>= (J..: "from"))
+        "part-event" -> PartEvent <$> v J..: "data"
+        "ping-event" -> PingEvent <$> ( v J..: "data" >>= (J..: "time"))
+                        <*> ( v J..: "data" >>= (J..: "next"))
+        "pm-initiate-event" -> PMInitEvent <$> (v J..: "data" >>= (J..: "from"))
+                               <*> (v J..: "data" >>= (J..: "from_nick"))
+                               <*> (v J..: "data" >>= (J..: "from_room"))
+                               <*> (v J..: "data" >>= (J..: "pm_id"))
+        "send-event" -> SendEvent <$> ( v J..: "data" )
         "snapshot-event" -> SnapshotEvent <$> (v J..: "data" >>= (J..: "identity"))
                             <*> (v J..: "data" >>= (J..: "session_id"))
                             <*> (v J..: "data" >>= (J..: "version"))
                             <*> (v J..: "data" >>= (J..: "listing"))
                             <*> (v J..: "data" >>= (J..: "log"))
-        "bounce-event" -> BounceEvent <$> (v J..: "data" >>= (J..: "reason"))
-        "pm-initiate-event" -> PMInitEvent <$> (v J..: "data" >>= (J..: "from"))
-                               <*> (v J..: "data" >>= (J..: "from_nick"))
-                               <*> (v J..: "data" >>= (J..: "from_room"))
-                               <*> (v J..: "data" >>= (J..: "pm_id"))
-        "network-event" -> NetworkEvent <$> (v J..: "data" >>= (J..: "type"))
         _ -> fail "No suitable event found"
     return $ EuphsEvt pkt
-parseEvt x = J.typeMismatch "EuphsPacket" x
+parseEvt x = JT.typeMismatch "EuphsPacket" x
 
-parseError :: J.Value -> Parser EuphsPacket
+parseError :: J.Value -> JT.Parser EuphsPacket
 parseError (J.Object v) = do
     msgId <- v J..:? "id"
     errorMsg <- v J..: "error"
     return $ EuphsError msgId errorMsg
-parseError x = J.typeMismatch "EuphsPacket" x
+parseError x = JT.typeMismatch "EuphsPacket" x
 
 -- | Function to decode a network packet to an Euphorian event
-decodePacket :: B.ByteString -> Either String EuphPacket
+decodePacket :: B.ByteString -> Either String EuphsPacket
 decodePacket = J.eitherDecode'
 
 -- | Function to encode an Euphorian command to a network packet
@@ -227,9 +227,10 @@ encodePacket :: SentCommand -> B.ByteString
 encodePacket = J.encode
 
 -- | Function to match a Reply with the command
-matchIdReply :: String -> EuphPacket -> Bool
+matchIdReply :: String -> EuphsPacket -> Bool
 matchIdReply i (EuphsError x _ ) = maybe False (==i) x
 matchIdReply i (EuphsReply s _ _) = s == i
+matchIdReply _ _ = False
 
 ---------------------------------------- COMMANDS ----------------------------------------
 
@@ -250,20 +251,20 @@ instance J.ToJSON AuthOption where
 -- | Types of commands
 data EuphCommand =
     Who -- | Requests a list of sessions connected to the room
-  | Log           { nMsg         :: Int -- ^ Number of messages to request
-                  , beforeMsg    :: String  -- ^ ID from when to request
+  | Log           { nMsg :: Int -- ^ Number of messages to request
+                  , beforeMsg :: Snowflake -- ^ ID from when to request
                   } -- ^ Requests a log of the most recent messages
-  | Send          { contentSend  :: String -- ^ Message to send
-                  , parentMsg    :: String -- ^ MessageID of the reply, empty for root
+  | Send          { contentSend :: String -- ^ Message to send
+                  , parentMsg :: String -- ^ MessageID of the reply, empty for root
                   } -- ^ Sends a message to the Room
-  | Nick          { nick         :: String -- ^ Nick to change to.
+  | Nick          { nick :: String -- ^ Nick to change to.
                   } -- ^ Requests a new nick.
-  | GetMessage    { idGet        :: MessageID -- ^ The Snowflake of the message to get
+  | GetMessage    { idGet :: Snowflake -- ^ The Snowflake of the message to get
                   } --  ^ Fully gets a message
-  | Auth          { authType     :: AuthOption -- ^ Method of Authentication
-                  , passcode     :: String -- ^ Passcode authentication
+  | Auth          { authType :: AuthOption -- ^ Method of Authentication
+                  , passcode :: String -- ^ Passcode authentication
                   }
-  | PMInit        { userID      :: UserID
+  | PMInit        { pmcID :: UserID
                   }
   deriving (Eq,Show)
 
