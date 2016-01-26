@@ -34,7 +34,7 @@ import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 
 import           System.IO                   (stdout, IOMode(..), Handle, openFile, hClose)
-import           System.Posix.Signals        (sigTERM,keyboardSignal, installHandler, Handler(Catch))
+import           System.Posix.Signals
 
 import qualified Data.ByteString.Lazy        as B
 --import qualified Data.ByteString.Lazy.Char8  as BC
@@ -47,9 +47,11 @@ import           Data.Time.Clock             as Time (UTCTime,getCurrentTime, di
 import qualified Data.List                   as L
 import qualified Data.Yaml                   as Y
 import           Data.Maybe                  (fromMaybe)
+import qualified Data.Set                    as S
 
 import           Control.Monad.Trans         (liftIO, MonadIO)
 import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
+import           Control.Monad.Writer        (WriterT, runWriterT, tell)
 import           Control.Monad               (forever, when, void, guard, liftM)
 import           Control.Concurrent.STM
 import           Control.Concurrent          (ThreadId, forkIO, myThreadId)
@@ -65,73 +67,105 @@ roomPath room = "/room/" ++ room ++ "/ws"
 -- | A mutable counter for packet ids
 type PacketID = TVar Int
 -- | The mutable bot agent
-type BotAgent = TMVar UserData
+type BotAgent = TMVar SessionView
 -- | The monad transformer stack, for handling all the bot events
-type Net = ReaderT Bot IO
+type Log = WriterT [String] IO
+type Net = ReaderT Bot Log
 
 data Close = CorrectClose | Reconnect | RoomDoesntExist
 
+-- TODO: Restructure the bot, the connection should be a side thread, with a proper channel to send the data (even raw packets).
+--       The side thread should reconnect, or change room.
+
+newtype RoomList = RoomList [Room]
+type RoomName = String
+
 -- | The main Bot data structure.
 data Bot = Bot
-    { botConnection :: !WS.Connection -- ^ Websocket connection to heim.
-    , botStatic :: BotStatic
-    , botDyn :: BotDyn
+    { botStatic :: BotStatic
+    , rooms :: RoomList
     }
 
 data BotStatic = BotStatic {
       startTime :: !UTCTime -- ^ Time at which the bot was started
-    , botFun    :: !BotFunctions -- ^ Custom bot functions
+    , botFun :: !BotFunctions -- ^ Custom bot functions
     , logHandle :: !Handle -- ^ Logging handle
-    , closeVar  ::  TChan Close -- ^ The way of handling the closing of a bot
+    , sideThreads ::  TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
+    , botName :: TVar String
 }
 
-data BotDyn = DotByn {
+data Room = Room {
       packetCount :: !PacketID -- ^ The packet counter
-    , botAgent    :: !BotAgent -- ^ The Bot agent given from the server
-    , sideThreads ::  TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
-    , evtQueue    ::  TQueue EuphEvent -- ^ Queue of reply events
-    , botRoom     :: !String -- ^ The room the bot currently is in.
-    , roomPW      ::  Maybe String -- ^ Room password
+    , botAgent :: !BotAgent -- ^ The Bot agent given from the server
+    , evtQueue ::  TQueue EuphEvent -- ^ Queue of reply events
+    , cmdQueue :: TQueue Command -- ^ Queue of commands to send to the room
+    , roomName :: !RoomName -- ^ The room the bot currently is in.
+    , roomPW ::  Maybe String -- ^ Room password
     , lastMessage ::  Maybe String -- ^ The last message id received
+    , closeVar ::  TChan Close -- ^ The way of handling the closing of a bot
+    , roomStartTime :: !UTCTime -- ^ Time at which the bot was started
+    , users :: TVar (S.Set SessionView)
 }
 
 -- | Custom Bot functions
 data BotFunctions = BotFunctions {
     eventsHook :: EuphEvent -> Net () -- ^ Main event loop. Every event not handled by the bot, calls this function.
-  , dcHook :: Maybe (IO ()) -- ^ Special actions to run in a disconnect, for cleanup.
+  , dcHook :: (MonadIO m => Maybe (m ())) -- ^ Special actions to run in a disconnect, for cleanup.
   , helpShortHook :: Maybe ([String] -> Net String) -- ^ A short !help description
   , helpLongHook :: Maybe ([String] -> Net String) -- ^ A long !help <botName> description
 }
+
+mkRoom :: RoomName -> Maybe String -> ConnectionOptions -> Log Room
+mkRoom rn pw co = do
+    (inQ,outQ,closeV) <- sideConnect
+    Room <$> (io $ newTVarIO 0) <*> (io $ newTMVarIO) <*>
+        (return inQ) <*> (return outQ) <*> (return rn) <*>
+        (return pw) <*> (return Nothing) <*> (return closeV) <*> (getCurrentTime) <*> (newTVarIO S.empty)
+    where sideConnect = do
+                        [inQ,outQ] <- replicateM 2 (io $ newTQueueIO)
+                        clV <- io $ newTChanIO
+                        connectWith rn co inQ outQ clV
+                        return (inQ,outQ,clV)
 
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
 -- | The main bot call function. When this action ends, the bot is closed.
 bot   :: BotFunctions -> IO ()
-bot hs = do
-         getOpts defaults options >>= botWithOpts hs
+bot hs = getOpts defaults options >> botWithOpts hs
 
 -- | Function for closing off the bot.
-disconnect :: BotFunctions -> IO ()
+disconnect :: MonadIO m => BotFunctions -> m ()
 disconnect hs = fromMaybe (return ()) (dcHook hs)
 
 -- | Function for calling the bot with custom options, using a getOpts call.
 botWithOpts :: BotFunctions -> Opts -> IO ()
 botWithOpts hs opts = do
-         started <- getCurrentTime
-         han <- if null $ logTarget opts then return stdout else openFile (logTarget opts) AppendMode
-         tellLogWithHandle han started "Starting up the bot"
-         let rooms = map (\x -> opts { roomList = x } ) $ words $ roomList opts
-         _ <- sequence_ $ map (\o -> botInit o hs han started) rooms
-         tellLogWithHandle han started "Ending the bot"
-         disconnect hs
-         hClose han
+    han <- if null (logTarget opts) then return stdout else openFile (logTarget opts) AppendMode
+    started <- getCurrentTime
+    (_, s) <- runWriterT (botStart hs opt)
+    sequence $ map (log han started) $ s
+    hClose han
+
+log :: Handle -> UTCTime -> String -> IO ()
+log han sT text = do
+    curTime <- getCurrentTime
+    T.hPutStrLn han $ "[" `T.append` getTimeDiff curTime sT `T.append` "] " `T.append` text
+    where getTimeDiff a b = T.pack $ show (diffUTCTime a b)
+
+botStart :: BotFunctions -> Opts -> Log ()
+botStart hs opts = do
+    tell "Starting up the bot"
+    let rooms = map (\x -> opts { roomList = x } ) $ words $ roomList opts
+    _ <- sequence_ $ map (\o -> botInit o hs han started) rooms
+    tellLogWithHandle han started "Ending the bot"
+    disconnect hs
 
 botInit :: Opts -> BotFunctions -> Handle -> UTCTime -> IO Bot
 botInit opts hs h l = do
-             client <- botConnect opts h l
-             closing <- atomically newTChan
-             client $ botMain opts hs h l closing
+    client <- botConnect opts h l
+    closing <- atomically newTChan
+    client $ botMain opts hs h l closing
 
 botConnect :: Opts -> Handle -> UTCTime -> IO (WS.ClientApp Bot -> IO Bot)
 botConnect opts han started = do
@@ -169,7 +203,6 @@ botMain o h han started closing c =
                 runReaderT botLoop thisBot
                 return thisBot
 
-
 botLoop :: Net ()
 botLoop = do
           closing <- asks closeVar
@@ -182,22 +215,9 @@ botLoop = do
                       a <- sendPacket (Auth AuthPasscode p)
                       guard $ success a
           _ <- sendPacket $ Nick bname
-          _ <- io $ installHandler keyboardSignal (Catch $ atomically $ writeTChan closing ()) Nothing
-          _ <- io $ installHandler sigTERM (Catch $ atomically $ writeTChan closing ()) Nothing
+          _ <- io $ installHandler keyboardSignal (CatchOnce $ atomically $ writeTChan closing ()) (Just $ addSignal sigTERM emptySignalSet)
           void $ io $ atomically $ readTChan closing
 
--- | Logging information to the log handle.
-tellLog :: T.Text -> Net ()
-tellLog text = do
-               sT <- asks startTime
-               han <- asks logHandle
-               io $ tellLogWithHandle han sT text
-
-tellLogWithHandle :: Handle -> UTCTime -> T.Text -> IO ()
-tellLogWithHandle han sT text = do
-    curTime <- getCurrentTime
-    T.hPutStrLn han $ "[" `T.append` getTimeDiff curTime sT `T.append` "] " `T.append` text
-    where getTimeDiff a b = T.pack $ show (diffUTCTime a b)
 
 botQueue :: Net ()
 botQueue = do

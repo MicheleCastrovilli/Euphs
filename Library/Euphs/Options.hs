@@ -14,48 +14,59 @@ import System.Console.GetOpt
 import System.Environment (getArgs)
 import Control.Monad (when)
 
+data ConnectionOptions = ConnectionOptions {
+    heimHost   :: !String -- ^ Heim instance hoster
+  , heimPort   :: !Int    -- ^ The port to connect to
+  , useSSL     :: !Bool   -- ^ Whether to use wss or ws
+} deriving Show
+
 -- | The main options structure.
-data Opts = Opts { heimHost   :: !String    -- ^ Heim instance hoster
-                 , heimPort   :: !Int       -- ^ The port to connect to
-                 , useSSL     :: !Bool      -- ^ Whether to use wss or ws
-                 , roomList   :: !String    -- ^ A list of initial rooms separated by whitespace in the format of <room name>[-<pw>]
-                 , showHelp   :: !Bool      -- ^ Print help on startup
-                 , logTarget  :: !FilePath  -- ^ The log file to write to.
-                                           -- Fall back to 'stdout' when
-                                           -- empty
-                 , botAccount :: !FilePath  -- ^ Email and password for logging into the account
-                 , botNick    :: !String    -- ^ The nick the Bot will be using.
-                 , config     :: !FilePath  -- ^ Config file for specific bot options
-                 }
-                 deriving (Show)
+data Opts = Opts {
+    connOpt    ::  ConnectionOptions -- ^ Options containing the connection info
+  , roomList   :: !String   -- ^ A list of initial rooms separated by whitespace in the format of <room name>[-<pw>]
+  , showHelp   :: !Bool     -- ^ Print help on startup
+  , logTarget  :: !FilePath -- ^ The log file to write to.
+                            -- Fall back to 'stdout' when
+                            -- empty
+  , botAccount :: !FilePath -- ^ Email and password for logging into the account
+  , botNick    :: !String   -- ^ The nick the Bot will be using.
+  , config     :: !FilePath -- ^ Config file for specific bot options
+} deriving Show
 
 -- | Type synonym for the list of options to the bot
 type OptsList = [OptDescr (Opts -> Opts)]
 
+defaultConnection :: ConnectionOptions
+defaultConnection = ConnectionOptions {
+    heimHost   = "euphoria.io"
+  , heimPort   = 443
+  , useSSL     = True
+}
+
+
 -- | Default options
 defaults :: Opts
-defaults = Opts { heimHost   = "euphoria.io"
-                , heimPort   = 443
-                , useSSL     = True
-                , roomList   = "test"
-                , showHelp   = False
-                , logTarget  = ""
-                , botAccount = ""
-                , botNick    = "EmptyBot"
-                , config     = ""
-                }
+defaults = Opts {
+    connOpt    = defaultConnection
+  , roomList   = "test"
+  , showHelp   = False
+  , logTarget  = ""
+  , botAccount = ""
+  , botNick    = "EmptyBot"
+  , config     = ""
+}
 
 -- | List of options available
 options :: OptsList
 options =
     [ Option "e" ["host"]
-        (ReqArg (\arg opt -> opt {heimHost = arg}) "HOST") "Heim instance to connect to"
+        (ReqArg (\arg opt -> opt {connOpt = (connOpt opt) {heimHost = arg}}) "HOST") "Heim instance to connect to"
     , Option "p" ["port"]
-        (ReqArg (\arg opt -> opt {heimPort = read arg :: Int}) "PORT") "Port to use"
+        (ReqArg (\arg opt -> opt {connOpt = (connOpt opt) {heimPort = read arg}}) "PORT") "Port to use"
     , Option "r" ["rooms", "room"]
         (ReqArg (\arg opt -> opt {roomList = arg}) "ROOMS") "Rooms to join"
     , Option "s" ["nossl"]
-        (NoArg (\opt -> opt {useSSL = False})) "Disable SSL"
+        (NoArg (\opt -> opt {connOpt = (connOpt opt) {useSSL = False}})) "Disable SSL"
     , Option "l" ["log"]
         (ReqArg (\arg opt -> opt {logTarget = arg}) "LOG") "Logging FilePath"
     , Option "i" ["identity"]

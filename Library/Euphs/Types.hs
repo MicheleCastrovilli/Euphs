@@ -234,9 +234,11 @@ matchIdReply _ _ = False
 
 ---------------------------------------- COMMANDS ----------------------------------------
 
+data Command = Command SentCommand | CloseCommand | ChangeRoom String
+
 -- | Generic structure for sending a command.
 data SentCommand =
-    Command
+    SentCommand
       { commandID   :: Int -- ^ ID of the packet to send the server
       , commandData :: EuphCommand -- ^ Proper packet
       }
@@ -269,7 +271,7 @@ data EuphCommand =
   deriving (Eq,Show)
 
 instance J.ToJSON SentCommand where
-  toJSON (Command idCommand dataCommand) = J.object ( "id" J..= show idCommand  : inPair dataCommand)
+  toJSON (SentCommand idCommand dataCommand) = J.object ( "id" J..= show idCommand  : inPair dataCommand)
   toJSON (PingCommand time) = J.object (["type" J..= ("ping-reply" :: J.Value) ,"data" J..= J.object [ "time" J..= time ]])
 
 -- | An internal function, to work with the JSON data
