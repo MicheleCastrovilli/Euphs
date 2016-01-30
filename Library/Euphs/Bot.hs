@@ -10,17 +10,19 @@ module Euphs.Bot (
   , Net
   , BotAgent
   , PacketID
-  -- ** Main Functions
   , bot
-  , botWithOpts
-  , closeBot
-  , disconnect
   , emptyBot
-  , getBotAgent
-  , sendPacket
-  , getBotConfig
-  , tellLog
-  , sendReply
+  -- ** Main Functions
+--  , bot
+--  , botWithOpts
+--  , closeBot
+--  , disconnect
+--  , emptyBot
+--  , getBotAgent
+--  , sendPacket
+--  , getBotConfig
+--  , tellLog
+--  , sendReply
 ) where
 
 import qualified Network.WebSockets          as WS
@@ -33,10 +35,11 @@ import qualified System.IO.Streams.SSL       as Streams
 import qualified System.IO.Streams.Network   as Streams
 import qualified System.IO.Streams.Internal  as StreamsIO
 
-import           System.IO                   (stdout, IOMode(..), Handle, openFile, hClose)
+import           System.IO                   (stdout, IOMode(..), Handle, openFile, hClose, hPutStrLn)
 import           System.Posix.Signals
 
 import qualified Data.ByteString.Lazy        as B
+import qualified Data.ByteString.Internal    as BS
 --import qualified Data.ByteString.Lazy.Char8  as BC
 import qualified Data.Text                   as T
 import qualified Data.Text.Lazy              as TL
@@ -50,9 +53,9 @@ import           Data.Maybe                  (fromMaybe)
 import qualified Data.Set                    as S
 
 import           Control.Monad.Trans         (liftIO, MonadIO)
-import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask)
-import           Control.Monad.Writer        (WriterT, runWriterT, tell)
-import           Control.Monad               (forever, when, void, guard, liftM)
+import           Control.Monad.Reader        (ReaderT, asks, runReaderT, ask,MonadReader)
+import           Control.Monad.Writer.Lazy   (WriterT, runWriterT, tell)
+import           Control.Monad
 import           Control.Concurrent.STM
 import           Control.Concurrent          (ThreadId, forkIO, myThreadId)
 import           Control.Exception           (SomeException, catch, onException)
@@ -69,130 +72,178 @@ type PacketID = TVar Int
 -- | The mutable bot agent
 type BotAgent = TMVar SessionView
 -- | The monad transformer stack, for handling all the bot events
-type Log = WriterT [String] IO
-type Net = ReaderT Bot Log
+type Net = ReaderT Bot IO
 
 data Close = CorrectClose | Reconnect | RoomDoesntExist
 
 -- TODO: Restructure the bot, the connection should be a side thread, with a proper channel to send the data (even raw packets).
 --       The side thread should reconnect, or change room.
 
-newtype RoomList = RoomList [Room]
+newtype RoomList = RoomList (TVar [Room])
 type RoomName = String
+type PacketsIncoming = TQueue EuphsPacket
+type CommandsOutbound = TQueue Command
+type ClosingChan = TChan Close
+type LogFun = String -> IO ()
 
 -- | The main Bot data structure.
 data Bot = Bot
     { botStatic :: BotStatic
-    , rooms :: RoomList
+    , rooms  :: RoomList
+    , logFun :: LogFun
+    , botConnOpt :: ConnectionOptions
     }
 
 data BotStatic = BotStatic {
-      startTime :: !UTCTime -- ^ Time at which the bot was started
-    , botFun :: !BotFunctions -- ^ Custom bot functions
-    , logHandle :: !Handle -- ^ Logging handle
-    , sideThreads ::  TVar [ThreadId] -- ^ An experimental way to keep track of the threads spawned
+      botFun :: !BotFunctions -- ^ Custom bot functions
+    , sideThreads :: TVar (S.Set ThreadId) -- ^ An experimental way to keep track of the threads spawned
     , botName :: TVar String
 }
 
 data Room = Room {
       packetCount :: !PacketID -- ^ The packet counter
     , botAgent :: !BotAgent -- ^ The Bot agent given from the server
-    , evtQueue ::  TQueue EuphEvent -- ^ Queue of reply events
-    , cmdQueue :: TQueue Command -- ^ Queue of commands to send to the room
     , roomName :: !RoomName -- ^ The room the bot currently is in.
     , roomPW ::  Maybe String -- ^ Room password
-    , lastMessage ::  Maybe String -- ^ The last message id received
-    , closeVar ::  TChan Close -- ^ The way of handling the closing of a bot
-    , roomStartTime :: !UTCTime -- ^ Time at which the bot was started
     , users :: TVar (S.Set SessionView)
+    , lastMessage ::  Maybe String -- ^ The last message id received
+    , roomConn :: RoomConnection
+}
+
+data RoomConnection = RoomConnection {
+      evtQueue ::  PacketsIncoming -- ^ Queue of events
+    , cmdQueue ::  CommandsOutbound -- ^ Queue of commands to send to the room
+    , closeChan :: ClosingChan -- ^ The way of handling the closing of a bot
+    , roomStartTime :: !UTCTime -- ^ Time at which the bot was started
 }
 
 -- | Custom Bot functions
 data BotFunctions = BotFunctions {
     eventsHook :: EuphEvent -> Net () -- ^ Main event loop. Every event not handled by the bot, calls this function.
-  , dcHook :: (MonadIO m => Maybe (m ())) -- ^ Special actions to run in a disconnect, for cleanup.
-  , helpShortHook :: Maybe ([String] -> Net String) -- ^ A short !help description
-  , helpLongHook :: Maybe ([String] -> Net String) -- ^ A long !help <botName> description
+  , dcHook :: Maybe (IO ()) -- ^ Special actions to run in a disconnect, for cleanup.
 }
 
-mkRoom :: RoomName -> Maybe String -> ConnectionOptions -> Log Room
-mkRoom rn pw co = do
-    (inQ,outQ,closeV) <- sideConnect
-    Room <$> (io $ newTVarIO 0) <*> (io $ newTMVarIO) <*>
-        (return inQ) <*> (return outQ) <*> (return rn) <*>
-        (return pw) <*> (return Nothing) <*> (return closeV) <*> (getCurrentTime) <*> (newTVarIO S.empty)
+-- | The main bot call function. When this action ends, the bot is closed.
+bot   :: BotFunctions -> IO ()
+bot hs = getOpts defaults options >>= botWithOpts hs
+
+botWithOpts :: BotFunctions -> Opts -> IO ()
+botWithOpts hs opts = do
+    write <- makeLogger opts
+    rooms <- emptyRooms
+    bs <- makeBotStatic hs opts
+    let b = Bot bs rooms write (connOpt opts)
+    return () -- runReaderT botStart b
+
+makeLogger :: Opts -> IO (String -> IO ())
+makeLogger opts = do
+    han <- if' (null (logTarget opts)) (return stdout) (openFile (logTarget opts) AppendMode)
+    started <- getCurrentTime
+    writeQueue <- newTQueueIO
+    forkIO $ forever (tlog han started writeQueue)
+    return (atomically . writeTQueue writeQueue)
+
+tlog :: Handle -> UTCTime -> TQueue String -> IO ()
+tlog han sT q = do
+    catch (forever $ do text <- atomically $ readTQueue q
+                        curTime <- getCurrentTime
+                        hPutStrLn han $ "[" ++ getTimeDiff curTime sT ++ "] " ++ text)
+          (\x -> hPutStrLn han ("Logger ended : " ++ show (x :: SomeException)) >> hClose han)
+    where getTimeDiff a b = show $ diffUTCTime a b
+
+emptyRooms :: IO RoomList
+emptyRooms = RoomList <$> (newTVarIO [])
+
+makeBotStatic :: BotFunctions -> Opts -> IO BotStatic
+makeBotStatic bf opts = do
+    BotStatic bf <$> (newTVarIO $ S.empty) <*> (newTVarIO $ botNick opts)
+
+-- | Empty bot
+emptyBot :: BotFunctions
+emptyBot = BotFunctions (\_ -> return ()) Nothing
+
+mkRoom :: RoomName -> Maybe String -> Net Room
+mkRoom rn pw = do
+    room <- sideConnect
+    io $ Room <$> (newTVarIO 0) <*> (newEmptyTMVarIO) <*>
+         (return rn) <*> (return pw) <*> (io $ newTVarIO S.empty)
+         <*> (return Nothing) <*> (return room)
     where sideConnect = do
-                        [inQ,outQ] <- replicateM 2 (io $ newTQueueIO)
-                        clV <- io $ newTChanIO
-                        connectWith rn co inQ outQ clV
-                        return (inQ,outQ,clV)
+                        rc <- io $ RoomConnection <$> newTQueueIO <*> newTQueueIO
+                                   <*> newTChanIO <*> getCurrentTime
+                        connectWith rn rc
+                        return rc
+
+parseRoomPw :: String -> (String, Maybe String)
+parseRoomPw x  = (takeWhile (/='-') x,toMay $ drop 1 $ dropWhile (/='-') x)
+    where toMay [] = Nothing
+          toMay x = Just x
+
+connectWith :: RoomName -> RoomConnection -> Net ()
+connectWith rn co = do
+    client <- botConnect rn
+    return ()
+
+botConnect ::  RoomName -> Net (WS.ClientApp a -> IO a)
+botConnect rn = do
+    co <- asks botConnOpt
+    s <- io $ socketConnect co
+    tellNet "Connected to the socket"
+    (i,o)  <- io $ if' (useSSL co) sslConn Streams.socketToStreams s
+    myStream <- io $ WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
+    tellNet "Websocket start"
+    return $ WS.runClientWithStream myStream (heimHost co) rn WS.defaultConnectionOptions []
+
+socketConnect :: ConnectionOptions -> IO S.Socket
+socketConnect opts = do
+    is <- S.getAddrInfo Nothing (Just $ heimHost opts) (Just $ show $ heimPort opts)
+    let addr = S.addrAddress $ head is
+        fam  = S.addrFamily $ head is
+    s <-  S.socket fam S.Stream S.defaultProtocol
+    S.connect s addr
+    return s
+
+sslConn :: S.Socket -> IO (StreamsIO.InputStream BS.ByteString, StreamsIO.OutputStream BS.ByteString)
+sslConn s = SSL.withOpenSSL $ do
+    ctx <- SSL.context
+    ssl <- SSL.connection ctx s
+    SSL.connect ssl
+    Streams.sslToStreams ssl
 
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
--- | The main bot call function. When this action ends, the bot is closed.
-bot   :: BotFunctions -> IO ()
-bot hs = getOpts defaults options >> botWithOpts hs
+if' :: Bool -> a -> a -> a
+if' True x _ = x
+if' False _ y = y
 
 -- | Function for closing off the bot.
 disconnect :: MonadIO m => BotFunctions -> m ()
-disconnect hs = fromMaybe (return ()) (dcHook hs)
+disconnect hs = fromMaybe (return ()) (fmap io $ dcHook hs)
+
+tellNet :: String -> Net ()
+tellNet str = do
+    writer <- asks logFun
+    io $ writer str
+
+{-
 
 -- | Function for calling the bot with custom options, using a getOpts call.
-botWithOpts :: BotFunctions -> Opts -> IO ()
-botWithOpts hs opts = do
-    han <- if null (logTarget opts) then return stdout else openFile (logTarget opts) AppendMode
-    started <- getCurrentTime
-    (_, s) <- runWriterT (botStart hs opt)
-    sequence $ map (log han started) $ s
-    hClose han
 
-log :: Handle -> UTCTime -> String -> IO ()
-log han sT text = do
-    curTime <- getCurrentTime
-    T.hPutStrLn han $ "[" `T.append` getTimeDiff curTime sT `T.append` "] " `T.append` text
-    where getTimeDiff a b = T.pack $ show (diffUTCTime a b)
 
-botStart :: BotFunctions -> Opts -> Log ()
-botStart hs opts = do
+botStart :: BotFunctions -> Opts -> UTCTime ->  Log ()
+botStart hs opts timeS = do
     tell "Starting up the bot"
-    let rooms = map (\x -> opts { roomList = x } ) $ words $ roomList opts
-    _ <- sequence_ $ map (\o -> botInit o hs han started) rooms
-    tellLogWithHandle han started "Ending the bot"
+    let rooms = parseRoomList $ roomList opts
+    botS <- BotStatic timeS hs <$> (io $ newTVarIO S.empty) <*> (io $ newTVarIO [])
+    roomList <- sequence $ map (\x -> uncurry mkRoom x $ connOpts opts) rooms
+    runReaderT mainBot $ Bot botS roomList
     disconnect hs
+    where parseRoomList = map parseRoomPw  . words
 
-botInit :: Opts -> BotFunctions -> Handle -> UTCTime -> IO Bot
-botInit opts hs h l = do
-    client <- botConnect opts h l
-    closing <- atomically newTChan
-    client $ botMain opts hs h l closing
-
-botConnect :: Opts -> Handle -> UTCTime -> IO (WS.ClientApp Bot -> IO Bot)
-botConnect opts han started = do
-        is <- S.getAddrInfo Nothing (Just $ heimHost opts) (Just $ show $ heimPort opts)
-        let addr = S.addrAddress $ head is
-            fam  = S.addrFamily $ head is
-        s <-  S.socket fam S.Stream S.defaultProtocol
-        S.connect s addr
-        tellLogWithHandle han started "Connected to the socket"
-        myStream <- if useSSL opts then
-                        SSL.withOpenSSL $ do
-                        ctx <- SSL.context
-                        ssl <- SSL.connection ctx s
-                        SSL.connect ssl
-                        tellLogWithHandle han started "Connected with SSL"
-                        (i,o) <- Streams.sslToStreams ssl
-                        WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
-                    else
-                        do
-                        (i,o) <- Streams.socketToStreams s
-                        WSS.makeStream (StreamsIO.read i) (\b -> StreamsIO.write (B.toStrict <$> b) o)
-        tellLogWithHandle han started "Websocket start"
-        return $ WS.runClientWithStream myStream (heimHost opts) (roomPath $ takeWhile (/= '-') $ roomList opts) WS.defaultConnectionOptions []
 
 botMain :: Opts -> BotFunctions -> Handle -> UTCTime -> TChan () -> WS.ClientApp Bot
-botMain o h han started closing c =
-                do
+botMain o h han started closing c = do
                 counter <- atomically $ newTVar 1
                 userVar <- atomically newEmptyTMVar
                 threadVar <- atomically $ newTVar []
@@ -215,7 +266,8 @@ botLoop = do
                       a <- sendPacket (Auth AuthPasscode p)
                       guard $ success a
           _ <- sendPacket $ Nick bname
-          _ <- io $ installHandler keyboardSignal (CatchOnce $ atomically $ writeTChan closing ()) (Just $ addSignal sigTERM emptySignalSet)
+          _ <- io $ installHandler keyboardSignal (CatchOnce $ atomically $ writeTChan closing ()) $
+                    Just $ addSignal sigTERM emptySignalSet
           void $ io $ atomically $ readTChan closing
 
 
@@ -266,9 +318,9 @@ forkBot act = do
           thisThreads <- asks sideThreads
           void $ io $ forkIO $ do
               thrID <- myThreadId
-              atomically $ modifyTVar thisThreads (thrID : )
-              catch (runReaderT act thisBot) (\x -> runReaderT (tellLog $ T.pack $ show (x :: SomeException)) thisBot)
-              atomically $ modifyTVar thisThreads (delete thrID)
+              atomically $ modifyTVar thisThreads (S.add thrID)
+              catch (runReaderT act thisBot) (\x -> runReaderT (tell $ show (x :: SomeException)) thisBot)
+              atomically $ modifyTVar thisThreads (S.delete thrID)
 
 getNextPacket :: Net Int
 getNextPacket = do
@@ -289,7 +341,7 @@ sendPacket :: EuphCommand -> Net EuphEvent
 sendPacket euphPacket =
       do
       seqNum <- getNextPacket
-      tellLog $ "Sending packet " `T.append` T.pack (show euphPacket) `T.append` " with seqnum : " `T.append` T.pack (show seqNum)
+      tell $ "Sending packet " ++ show euphPacket ++ " with seqnum : " ++ show seqNum
       conn <- asks botConnection
       evts <- asks evtQueue
       io $ WS.sendTextData conn $ encodePacket $ Command seqNum euphPacket
@@ -297,7 +349,7 @@ sendPacket euphPacket =
           evt <- readTQueue evts
           guard $ matchIdReply seqNum evt
           return evt
-      tellLog $ "Recieved packet " `T.append` T.pack (show ev)
+      tell $ "Recieved packet " ++ show ev
       return ev
 
 -- | Function for closing the bot from inside the Net monad
@@ -308,7 +360,7 @@ closeBot =
   io $ atomically (writeTChan closing ())
 
 -- | An easier way to read the current bot agent
-getBotAgent :: Net UserData
+getBotAgent :: Net SessionView
 getBotAgent = asks botAgent >>= (io . atomically .  readTMVar)
 
 getUptime :: Net String
@@ -316,10 +368,9 @@ getUptime = do
     sT <- asks startTime
     eT <- io Time.getCurrentTime
     let myTime = round $ Time.diffUTCTime eT sT :: Integer
-    let startedString = show sT
     let (y, y') = L.mapAccumR quotRem myTime [24,60,60]
     let res = unwords $ map (\(x, z) -> show z ++ x) $ dropWhile ((== 0) . snd) $  zip ["d", "h", "m", "s"] $ y:y'
-    return $ startedString ++ " (" ++ res ++ ")"
+    return $ show sT ++ " (" ++ res ++ ")"
 
 getUptimeReply :: Net String
 getUptimeReply = liftM ((++) "/me has been up since " . flip (++) ".") getUptime
@@ -332,10 +383,9 @@ getBotConfig o =
     else
       Y.decodeFile $ config o
 
--- | Empty bot
-emptyBot :: BotFunctions
-emptyBot = BotFunctions (\_ -> return ()) Nothing Nothing Nothing
 
 -- | Convenience function for sendPacket $ Send str (msgID m)
-sendReply :: MessageData -> String -> Net EuphEvent
+sendReply :: Message -> String -> Net EuphEvent
 sendReply m str = sendPacket $ Send str $ msgID m
+
+-}

@@ -1,7 +1,9 @@
 -- | An Easier way of making a bot, that has basic needs, like an exact word match for the command,
 -- | and providing an easy way to also have an auto generated help.
-module Euphs.Easy (easyBot, EasyBotFun, Command, ShortHelp, LongHelp, EasyFun) where
-
+module Euphs.Easy (
+    --easyBot, EasyBotFun, Command, ShortHelp, LongHelp, EasyFun
+) where
+{-
 import Data.List (intercalate)
 import Control.Monad (void)
 import Safe
@@ -50,4 +52,4 @@ easyHelp f h = return $ if null h then
 
 showHelp :: EasyBotFun -> String
 showHelp (c, ( _, s, _))  = "\"" ++ c ++ "\"" ++ if null s then "" else (" - " ++ s)
-
+-}

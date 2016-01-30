@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Euphs.Options
     ( Opts(..)
+    , ConnectionOptions(..)
     , parseOpts
     , OptsList
     , defaults
